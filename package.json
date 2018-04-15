@@ -1,0 +1,28 @@
+{
+  "name": "jmk",
+  "version": "1.0.0",
+  "description": "Make-inspired build tool",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "targets-parser": "mkdir -p build/targets && cp src/targets/*.js build/targets && jison ./src/targets/grammar.jison ./src/targets/lex.jisonlex -o build/targets/parser.js"
+  },
+  "bin": {
+    "jmk": "lib/index.js",
+    "mk": "lib/index.js"
+  },
+  "repository": "blake-regalia/jmk.js",
+  "keywords": [
+    "Make",
+    "Makefile",
+    "build-tool"
+  ],
+  "author": "Blake Regalia <blake.regalia@gmail.com> (blake-regalia.com)",
+  "license": "ISC",
+  "dependencies": {
+    "colors": "^1.2.1",
+    "commander": "^2.15.1"
+  }
+}
