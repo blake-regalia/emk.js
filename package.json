@@ -1,6 +1,6 @@
 {
-  "name": "jmk",
-  "version": "1.0.0",
+  "name": "mk.js",
+  "version": "0.0.1",
   "description": "Make-inspired build tool",
   "main": "index.js",
   "directories": {
@@ -10,10 +10,10 @@
     "targets-parser": "mkdir -p build/targets && cp src/targets/*.js build/targets && jison ./src/targets/grammar.jison ./src/targets/lex.jisonlex -o build/targets/parser.js"
   },
   "bin": {
-    "jmk": "lib/index.js",
+    "mk.js": "lib/index.js",
     "mk": "lib/index.js"
   },
-  "repository": "blake-regalia/jmk.js",
+  "repository": "blake-regalia/mk.js",
   "keywords": [
     "Make",
     "Makefile",
