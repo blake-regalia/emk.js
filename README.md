@@ -9,19 +9,19 @@ This build tool reimagines **Make** in an ECMAScript context by using `mk.js` fi
 
 Install:
 ```bash
-$ npm install mk.js
+$ npm install jmk
 ```
 
 Command line using `npx`:
 ```
-$ npx mk.js
+$ npx jmk
 ```
 
 Command line if installed globally
 ```bash
 $ npm i -g mk.js
 
-$ mk.js
+$ jmk
 # ...OR...
 $ mk
 ```
@@ -93,7 +93,7 @@ Now, in this example, a change to any file under `src/` will automatically trigg
 ### Targets
 A target is assumed to be the relative path to a destination file so that the build tool can check its 'date modified' timestamp to see if any of its dependencies are newer (so that it knows whether or not to rebuild it). Using what Make calls 'phony' targets allows recipes to specify dependencies without creating a file to satisfy the presumed target path. 
 
-With `mk`, any recipe that does not have a `.run` property is assumed to be phony. We only need to make phony-ness explicit when there is a `.run` property on a phony target. For example, 
+With `jmk`, any recipe that does not have a `.run` property is assumed to be phony. We only need to make phony-ness explicit when there is a `.run` property on a phony target. For example, 
 ```js
 {
     all: 'index',  // no `.run` property -- obviously phony
