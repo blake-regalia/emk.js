@@ -18,6 +18,9 @@ This build tool reimagines **Make** in an ECMAScript context by using `mk.js` fi
 Best to save it as a devDependency with your project:
 ```bash
 $ npm install --save-dev mkjs-cli
+
+# also nice to have the binary linked
+$ npm i -g mkjs-cli
 ```
 
 ## Usage
@@ -25,11 +28,20 @@ $ npm install --save-dev mkjs-cli
 $ mk --help
 # ...OR...
 $ mkjs --help
-```
+# ...OR...
+$ npx mkjs-cli --help
 
-Command line using `npx`:
-```
-$ npx mkjs
+  Usage: mk [options] [targets...]
+
+  Options:
+
+    -v, --version  output the version number
+    -n, --dry-run  show the targets and commands without executing them
+    -s, --silent   do not echo commands
+    -w, --watch    watch dependency files and re-mk targets
+    -f, --file     use specified mkfile
+    -h, --help     output usage information
+
 ```
 
 
