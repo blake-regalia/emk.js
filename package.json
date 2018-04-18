@@ -1,6 +1,6 @@
 {
   "name": "mkjs-cli",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Make-inspired build tool",
   "main": "lib/index.js",
   "directories": {
