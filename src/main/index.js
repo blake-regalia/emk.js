@@ -5,7 +5,7 @@ const cp = require('child_process');
 const path = require('path');
 require('colors');
 
-const targets = require('../build/targets/parser.js');
+const targets = require('./targets/parser.js');
 
 const debug = {
 	log: (s, ...a_args) => console.log(`| ${s}`, ...a_args),

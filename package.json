@@ -2,17 +2,16 @@
   "name": "mkjs-cli",
   "version": "0.0.3",
   "description": "Make-inspired build tool",
-  "main": "lib/index.js",
+  "main": "build/index.js",
   "directories": {
-    "lib": "lib",
-    "build": "build"
+    "build": "./build"
   },
   "scripts": {
-    "targets": "mkdir -p build/targets && cp src/targets/*.js build/targets && jison ./src/targets/grammar.jison ./src/targets/lex.jisonlex -o build/targets/parser.js"
+    "build": "mkdir -p build/targets && cp src/targets/*.js build/targets && jison ./src/targets/grammar.jison ./src/targets/lex.jisonlex -o build/targets/parser.js && cp src/main/* build/"
   },
   "bin": {
-    "mkjs": "lib/index.js",
-    "mk": "lib/index.js"
+    "mkjs": "build/index.js",
+    "mk": "build/index.js"
   },
   "repository": "blake-regalia/mkjs.js",
   "keywords": [
