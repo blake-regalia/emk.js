@@ -2,9 +2,10 @@
   "name": "mkjs-cli",
   "version": "0.0.2",
   "description": "Make-inspired build tool",
-  "main": "index.js",
+  "main": "lib/index.js",
   "directories": {
-    "lib": "lib"
+    "lib": "lib",
+    "build": "build"
   },
   "scripts": {
     "targets": "mkdir -p build/targets && cp src/targets/*.js build/targets && jison ./src/targets/grammar.jison ./src/targets/lex.jisonlex -o build/targets/parser.js"
