@@ -1,30 +1,37 @@
-# mk.js 🎂
-[![NPM version][npm-image]][npm-url] [![Dependency Status][daviddm-image]][daviddm-url] 
+# mkjs 🎂
+[![NPM version][npmv-image]][npmv-url] [![Build Status][travis-image]][travis-url] [![Dependency Status][david-image]][david-url] [![dependencies Status][david-dev-image]][david-dev-url]
 
-Yet another JavaScript build tool -- designed to mimic GNU Make using scriptable 'mk.js' files.
+[npmv-image]: https://img.shields.io/npm/v/mkjs-cli.svg
+[npmv-url]: https://www.npmjs.com/package/mkjs-cli
+[travis-image]: https://travis-ci.org/blake-regalia/mkjs.js.svg?branch=master
+[travis-url]: https://travis-ci.org/blake-regalia/mkjs.js
+[david-image]: https://david-dm.org/blake-regalia/mkjs.js.svg
+[david-url]: https://david-dm.org/blake-regalia/mkjs.js
+[david-dev-image]: https://david-dm.org/blake-regalia/mkjs.js/dev-status.svg
+[david-dev-url]: https://david-dm.org/blake-regalia/mkjs.js?type=dev
 
-**Make** had it pretty well figured out. However, intricate build tasks can quickly exceed the capabilities of the Makefile language.  On the other hand, modern ECMAScript allows for very expressive and concise scripting.
+**Make** had it pretty well figured out. When it comes to node.js projects however, intricate build tasks can quickly exceed the capabilities of the Makefile language.  On the other hand, modern ECMAScript allows for very expressive and concise scripting.
 
 This build tool reimagines **Make** in an ECMAScript context by using `mk.js` files, which leverages `bash` to execute build commands.
 
-Install:
+## Install:
+Best to save it as a devDependency with your project:
 ```bash
-$ npm install jmk
+$ npm install --save-dev mkjs-cli
+```
+
+## Usage
+```bash
+$ mk --help
+# ...OR...
+$ mkjs --help
 ```
 
 Command line using `npx`:
 ```
-$ npx jmk
+$ npx mkjs
 ```
 
-Command line if installed globally
-```bash
-$ npm i -g mk.js
-
-$ jmk
-# ...OR...
-$ mk
-```
 
 ### Example: building a JISON parser
 
@@ -41,7 +48,7 @@ project/
 └─ mk.js
 ```
 
-`mk.js`:
+Your build file is `mk.js`:
 ```js
 module.exports = {
     all: 'index parser',
@@ -93,7 +100,7 @@ Now, in this example, a change to any file under `src/` will automatically trigg
 ### Targets
 A target is assumed to be the relative path to a destination file so that the build tool can check its 'date modified' timestamp to see if any of its dependencies are newer (so that it knows whether or not to rebuild it). Using what Make calls 'phony' targets allows recipes to specify dependencies without creating a file to satisfy the presumed target path. 
 
-With `jmk`, any recipe that does not have a `.run` property is assumed to be phony. We only need to make phony-ness explicit when there is a `.run` property on a phony target. For example, 
+With `mkjs`, any recipe that does not have a `.run` property is assumed to be phony. We only need to make phony-ness explicit when there is a `.run` property on a phony target. For example, 
 ```js
 {
     all: 'index',  // no `.run` property -- obviously phony
@@ -120,7 +127,7 @@ $ mk clean
 ### Patterns
 A very useful feature when designing build tasks can be the use of patterns in targets. 
 
-##### Word capture
+#### Word capture
 The simplest way to embed patterns in targets is to use the colon `:` operator followed by a variable name like so:
 `:{name}` -- where `name` matches `/^[A-Za-z_][A-Za-z_0-9]*$/`.
 
@@ -152,7 +159,7 @@ Instead of enumerating all target paths, we can use a word pattern to generalize
 }
 ```
 
-##### Regular Expression Capture
+#### Regular Expression Capture
 You may need more control over the patterns your targets match. The more advanced way to embed patterns in targets is by creating named regular expressions in the mk-file config:
 `'&{pattern_name}': /{regex}/,`  -- where `pattern_name` matches `/^[A-Za-z_][A-Za-z_0-9]*$/`.
 
@@ -191,17 +198,44 @@ The `${name}` variable that gets created from these patterns is an array that co
 ```
 
 ### Recipes
-A target
+This build tool uses `bash` to execute the strings in `.run` commands, as well as resolving the values of dependency targets, because of all the nifty features it has for dealing with variables and so on. This also means you can use glob patterns to match files at runtime. Each shell is created in a child process and run from the projects cwd. All scoped variables (e.g., target path, dependencies, named pattern matches, capture groups, etc.) will be injected into the same shell process commands before the `.run` command string. This means that bash is handling all variable string substitution with a few exceptions (such as the `$@` special variable).
 
-<!-- While some have turned to config-based build tools like Grunt, or stream-based build tools like Gulp, the happy config/stream hybrid approach -->
+**Keys**
+`.phony` -- a boolean used to specify that the recipe itself does not build an output file. Only necessary when recipe has a `.run` property. See [Targets](#targets) for more info.
+`.deps` -- a space-delimited string of target dependencies *or* an array of them. See [Targets](#targets) for more info.
+`.run` -- a string of commands to run in a `bash` shell.
+`.case` -- a boolean indicating if its okay for this recipe to match the same target as another recipe. Normally the tool will throw an error to warn the user that some target matched multiple recipes, but it can be useful to have a recipe that matches *other* targets not matched by another recipe. Using the `case: true` option in both recipes signifies these recipes are intentionally part of a switch and the tool will use the first recipe (in the object's key order) when a target matches multiple recipes.
+
+```js
+{
+    'build/packages/:package/README.md': {
+        case: true,  // this recipe will be used for README.md files
+        deps: [
+            'doc/$package/*.md',  // take all *.md files
+            '$(dirname $@)',  // make sure output directory exists
+        ],
+        run: `
+            combine-and-generate-html $1 > $@
+        `,
+    },
+    
+    'build/packages/:package/:file': {
+        case: true,  // these are for all non-README.md files
+        deps: [
+            'src/$package/$file',  // depends on source file
+            'build/packages/$package/README.md',  // any documentation if it exists
+            '$(dirname $@)',  // make sure output directory exists
+        ],
+        run: `
+            do-some-js-transform $1 > $@
+        `,
+    },
+    
+}
+```
+
 
 ## License
 
 ISC © [Blake Regalia]()
-
-
-[npm-image]: https://badge.fury.io/js/jmk.svg
-[npm-url]: https://npmjs.org/package/jmk
-[daviddm-image]: https://david-dm.org/blake-regalia/jmk.js.svg?theme=shields.io
-[daviddm-url]: https://david-dm.org/blake-regalia/jmk.js
 
