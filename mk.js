@@ -1,3 +1,4 @@
+// dogfooding
 
 const pd_build = 'build';
 const pdg_component = `${pd_build}/:component`;

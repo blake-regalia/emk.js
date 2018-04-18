@@ -7,10 +7,10 @@
     "lib": "lib"
   },
   "scripts": {
-    "targets-parser": "mkdir -p build/targets && cp src/targets/*.js build/targets && jison ./src/targets/grammar.jison ./src/targets/lex.jisonlex -o build/targets/parser.js"
+    "targets": "mkdir -p build/targets && cp src/targets/*.js build/targets && jison ./src/targets/grammar.jison ./src/targets/lex.jisonlex -o build/targets/parser.js"
   },
   "bin": {
-    "jmk": "lib/index.js",
+    "mkjs": "lib/index.js",
     "mk": "lib/index.js"
   },
   "repository": "blake-regalia/mkjs.js",
