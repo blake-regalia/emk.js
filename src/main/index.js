@@ -553,8 +553,15 @@ class mkfile {
 
 							let h_files = {};
 							if(a_runs) {
+								// debugger;
 								for(let s_file in a_runs.files) {
-									g_context.files[s_file] = h_files[s_file] = a_runs.files[s_file].length? a_runs.files[s_file]: [s_target];
+									let a_files = a_runs.files[s_file].length? a_runs.files[s_file]: [s_target];
+
+									if(s_file in h_files) h_files[s_file].push(...a_files);
+									else h_files[s_file] = a_files;
+
+									if(s_file in g_context.files) g_context.files[s_file].push(...a_files);
+									else g_context.files[s_file] = a_files;
 								}
 							}
 
