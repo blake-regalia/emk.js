@@ -658,7 +658,7 @@ class mkfile {
 	}
 
 	special(s_str, g_context) {
-		return s_str.replace(/(^|[^\\])\$([@#$%^&*<?])/g, (s_base, s_preceed, s_char) => {
+		return s_str.replace(/(^|[^\\])\$([@#$%^&*<])/g, (s_base, s_preceed, s_char) => {
 			let s_text = (() => {
 				switch(s_char) {
 					case '@': return g_context.target;
