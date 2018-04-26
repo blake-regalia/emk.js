@@ -586,7 +586,21 @@ class mkfile {
 			else {
 				// run recipe
 				if(g_recipe.run) {
+					let z_run = g_recipe.run;
+
 					await new Promise((fk_recipe) => {
+						let s_run = z_run;
+
+						// run is a function
+						if('function' === typeof z_run) {
+							s_run = z_run(g_context.variables);
+						}
+
+						// run is not a string
+						if('string' !== typeof s_run) {
+							throw new TypeError(`invalid run type: ${s_run}`);
+						}
+
 						let s_exec = this.special(g_recipe.run, g_context);
 
 						debug.log(`[${s_tag}] args: ${JSON.stringify(a_dep_targets)}`.blue);
