@@ -601,7 +601,7 @@ class mkfile {
 							throw new TypeError(`invalid run type: ${s_run}`);
 						}
 
-						let s_exec = this.special(g_recipe.run, g_context);
+						let s_exec = this.special(s_run, g_context);
 
 						debug.log(`[${s_tag}] args: ${JSON.stringify(a_dep_targets)}`.blue);
 						debug.log(`[${s_tag}] vars: ${JSON.stringify(g_context.variables)}`.blue);
