@@ -610,11 +610,11 @@ class mkfile {
 						let u_run = bash.spawn(s_exec, g_context.variables, a_dep_targets);
 
 						u_run.stdout.on('data', (s_data) => {
-							debug.log(`[[${s_target}]]: ${s_data}`);
+							debug.log(`[[${s_target}]]:`.magenta+` ${s_data}`);
 						});
 
 						u_run.stderr.on('data', (s_data) => {
-							console.error(`[[${s_target}]]: ${s_data}`.orange);
+							console.error(`[[${s_target}]]:`.red+` ${s_data}`);
 						});
 
 						u_run.on('exit', (n_code) => {
