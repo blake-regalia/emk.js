@@ -614,12 +614,14 @@ class mkfile {
 						});
 
 						u_run.stderr.on('data', (s_data) => {
-							console.error(`[[${s_target}]]: ${s_data}`.red);
+							console.error(`[[${s_target}]]: ${s_data}`.orange);
 						});
 
 						u_run.on('exit', (n_code) => {
 							// error
 							if(n_code) {
+								// let user know in case they are watching files
+								process.stdout.write('\x07');
 								throw new Error(`recipe commands resulted in non-zero exit code '${n_code}' for target '${s_target}'`);
 							}
 
