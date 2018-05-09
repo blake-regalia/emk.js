@@ -147,7 +147,7 @@ class err_no_target extends Error {}
 
 class mkfile {
 	constructor(h_mkfile) {
-		let b_phony_pattern = true;
+		let b_phony_pattern = false;
 		let r_phony = /^[\w-]+$/;
 		let a_phonies = [];
 		let h_patterns = {};
@@ -184,8 +184,13 @@ class mkfile {
 			}
 			// phony override
 			else if('.PHONY' === s_key) {
+				// boolean; enable/disable default pattern
+				if('boolean' === typeof z_value) {
+					b_phony_pattern = z_value;
+				}
 				// regex
-				if(z_value instanceof RegExp) {
+				else if(z_value instanceof RegExp) {
+					b_phony_pattern = true;
 					r_phony = z_value;
 				}
 				// targets in string
@@ -251,7 +256,6 @@ class mkfile {
 				else {
 					throw new TypeError(`unrecognized value type for recipe '${s_key}': ${z_value}`);
 				}
-
 
 				// phony
 				if(b_phony) {
@@ -395,17 +399,23 @@ class mkfile {
 				return {
 					files: h_files,
 					mtimes: a_files.map((s_file) => {
-						// regular file
 						let g_stat;
 						try {
 							// stat file
 							g_stat = fs.statSync(s_file);
 
-							// modification time
-							let xt_mtime = g_stat.mtimeMs;
+							// directory
+							if(g_stat.isDirectory()) {
+								return Infinity;
+							}
+							// regular file
+							else {
+								// modification time
+								let xt_mtime = g_stat.mtimeMs;
 
-							// return dependency struct
-							return xt_mtime;
+								// return dependency struct
+								return xt_mtime;
+							}
 						}
 						// no such file
 						catch(e_stat) {
@@ -454,16 +464,27 @@ class mkfile {
 				// stat file
 				let g_stat = fs.statSync(s_target);
 
-				// fetch modification time
-				g_context.mtime = g_stat.mtimeMs;
+				// is a directory
+				if(g_stat.isDirectory()) {
+					// set artificial modification time
+					g_context.mtime = Infinity;
 
-				// // save file
-				// g_context.files[s_target] = [];
+					debug.log(`[${s_tag}] '${s_target}' is a directory that already exists`);
+				}
+				// regular file
+				else {
+					// fetch modification time
+					g_context.mtime = g_stat.mtimeMs;
 
-				debug.log(`[${s_tag}] '${s_target}' modified ${new Date(g_context.mtime)}`);
+					// // save file
+					// g_context.files[s_target] = [];
+
+					debug.log(`[${s_tag}] '${s_target}' modified ${new Date(g_context.mtime)}`);
+				}
 			}
 			// file not exists
 			catch(e_stat) {
+				// always run this rule
 				g_context.mtime = 0;
 			}
 		}
