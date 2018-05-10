@@ -22,7 +22,7 @@
   "author": "Blake Regalia <blake.regalia@gmail.com> (blake-regalia.com)",
   "license": "ISC",
   "dependencies": {
-    "colors": "^1.2.1",
+    "colors": "^1.2.4",
     "commander": "^2.15.1"
   }
 }

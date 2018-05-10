@@ -101,6 +101,22 @@ class helper_mkfile {
 	constructor() {
 
 	}
+
+	paths(a_files) {
+		let a_paths = [];
+		for(let z_file of a_files) {
+			if('string' === typeof z_file) {
+				a_paths.push(z_file);
+			}
+			else {
+				for(let s_dir in z_file) {
+					a_paths.push(...this.paths(z_file[s_dir]).map(s => `${s_dir}/${s}`));
+				}
+			}
+		}
+
+		return a_paths;
+	}
 }
 
 class bash {
