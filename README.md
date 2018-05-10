@@ -24,7 +24,7 @@ $ npm i -g mkjs-cli
 ```
 
 ## Usage
-```bash
+```
 $ mk --help
 # ...OR...
 $ mkjs --help
