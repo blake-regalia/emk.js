@@ -9,8 +9,8 @@ const targets = require('./targets/parser.js');
 
 const debug = {
 	log: (s, ...a_args) => console.log(`| ${s}`, ...a_args),
-	warn: (s, ...a_args) => console.warn(`! ${s}`, ...a_args),
-	error: (s, ...a_args) => console.error(`~ ${s}`, ...a_args),
+	warn: (s, ...a_args) => console.warn(`# ${s}`, ...a_args),
+	error: (s, ...a_args) => console.error(`* ${s}`, ...a_args),
 };
 
 const gobble = (s_text) => {
@@ -668,7 +668,7 @@ class mkfile {
 							// print each newline
 							let a_lines = s_buffer_stderr.split(/\n/g);
 							for(let s_line of a_lines.slice(0, -1)) {
-								debug.log(`[[${s_target}]]:`.red+` ${s_line}`);
+								debug.error(`[[${s_target}]]:`.red+` ${s_line}`);
 							}
 
 							// set to final un-terminated line
