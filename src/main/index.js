@@ -30,8 +30,7 @@ async function load(p_mkfile, g_args) {
 		z_mkfile = require(p_mkfile);
 	}
 	catch(e_require) {
-		debug.error(`error while trying to load mk.js file:`.red+`\n${e_require}`);
-		throw e_require;
+		throw new Error(`error while trying to load mk.js file: ${e_require.message}\n`.red+e_require.stack);
 	}
 
 	let h_mkfile;
@@ -646,15 +645,45 @@ class mkfile {
 
 						let u_run = bash.spawn(s_exec, g_context.variables, a_dep_targets);
 
+						let s_buffer_stdout = '';
 						u_run.stdout.on('data', (s_data) => {
-							debug.log(`[[${s_target}]]:`.magenta+` ${s_data}`);
+							// append to buffer
+							s_buffer_stdout += s_data;
+
+							// print each newline
+							let a_lines = s_buffer_stdout.split(/\n/g);
+							for(let s_line of a_lines.slice(0, -1)) {
+								debug.log(`[[${s_target}]]:`.magenta+` ${s_line}`);
+							}
+
+							// set to final un-terminated line
+							s_buffer_stdout = a_lines[a_lines.length-1];
 						});
 
+						let s_buffer_stderr = '';
 						u_run.stderr.on('data', (s_data) => {
-							console.error(`[[${s_target}]]:`.red+` ${s_data}`);
+							// append to buffer
+							s_buffer_stderr += s_data;
+
+							// print each newline
+							let a_lines = s_buffer_stderr.split(/\n/g);
+							for(let s_line of a_lines.slice(0, -1)) {
+								debug.log(`[[${s_target}]]:`.red+` ${s_line}`);
+							}
+
+							// set to final un-terminated line
+							s_buffer_stderr = a_lines[a_lines.length-1];
 						});
 
 						u_run.on('exit', (n_code) => {
+							// print last of buffers
+							if(s_buffer_stdout) {
+								debug.log(`[[${s_target}]]:`.magenta+` ${s_buffer_stdout}`);
+							}
+							if(s_buffer_stderr) {
+								debug.error(`[[${s_target}]]:`.red+` ${s_buffer_stderr}`);
+							}
+
 							// error
 							if(n_code) {
 								// let user know in case they are watching files
@@ -791,6 +820,14 @@ if(module === require.main) {
 
 	let p_mkfile = path.join(process.cwd(), s_mk_file);
 
-	load(p_mkfile, g_args);
+	(async() => {
+		try {
+			await load(p_mkfile, g_args);
+		}
+		catch(e_mk) {
+			console.error(`\n\nFatal error: ${e_mk.message}`.red+e_mk.stack);
+			process.exit(1);
+		}
+	})();
 }
 
