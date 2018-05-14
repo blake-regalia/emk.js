@@ -629,7 +629,7 @@ class mkfile {
 
 						// run is a function
 						if('function' === typeof z_run) {
-							s_run = z_run(g_context.variables);
+							s_run = z_run(g_context.variables, g_context.deps);
 						}
 
 						// run is not a string
