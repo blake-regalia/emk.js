@@ -30,7 +30,7 @@ async function load(p_mkfile, g_args) {
 		z_mkfile = require(p_mkfile);
 	}
 	catch(e_require) {
-		throw new Error(`error while trying to load mk.js file: ${e_require.message}\n`.red+e_require.stack);
+		throw new Error(`error while trying to load emk.js file: ${e_require.message}\n`.red+e_require.stack);
 	}
 
 	let h_mkfile;
@@ -68,6 +68,8 @@ async function load(p_mkfile, g_args) {
 				let a_w_targets = g_make.files[s_file];
 				let f_listener = () => {
 					debug.log(`updated ${s_file}`.green);
+					debugger;
+					g_make; a_makes;
 					k_mkfile.make(a_w_targets, new Map());
 				};
 				fs.watchFile(s_file, f_listener);
@@ -318,7 +320,7 @@ class mkfile {
 		// run each make target
 		let a_makes = await Promise.all(a_targets.map((s_target) => {
 			// print
-			debug.log(`mk ${s_target}`.white);
+			debug.log(`emk ${s_target}`.white);
 
 			// run
 			return this.run(s_target, Object.assign(g_scope, {stack:[]}), s_target, g_state);
@@ -806,8 +808,8 @@ if(module === require.main) {
 		.version(require('../package.json').version, '-v, --version')
 		.option('-n, --dry-run', 'show the targets and commands without executing them')
 		.option('-s, --silent', 'do not echo commands')
-		.option('-w, --watch', 'watch dependency files and re-mk targets')
-		.option('-f, --file', 'use specified mkfile')
+		.option('-w, --watch', 'watch dependency files and re-emk targets')
+		.option('-f, --file', 'use specified emk file')
 		.arguments('[targets...]')
 		.parse(process.argv);
 
@@ -816,7 +818,7 @@ if(module === require.main) {
 		watch: h_cli.watch,
 	};
 
-	let s_mk_file = h_cli.file || 'mk.js';
+	let s_mk_file = h_cli.file || 'emk.js';
 
 	let p_mkfile = path.join(process.cwd(), s_mk_file);
 

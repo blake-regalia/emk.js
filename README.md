@@ -1,45 +1,43 @@
-# mkjs 🎂
+# emk 🎂
 [![NPM version][npmv-image]][npmv-url] [![Build Status][travis-image]][travis-url] [![Dependency Status][david-image]][david-url] [![dependencies Status][david-dev-image]][david-dev-url]
 
-[npmv-image]: https://img.shields.io/npm/v/mkjs-cli.svg
-[npmv-url]: https://www.npmjs.com/package/mkjs-cli
-[travis-image]: https://travis-ci.org/blake-regalia/mkjs.js.svg?branch=master
-[travis-url]: https://travis-ci.org/blake-regalia/mkjs.js
-[david-image]: https://david-dm.org/blake-regalia/mkjs.js.svg
-[david-url]: https://david-dm.org/blake-regalia/mkjs.js
-[david-dev-image]: https://david-dm.org/blake-regalia/mkjs.js/dev-status.svg
-[david-dev-url]: https://david-dm.org/blake-regalia/mkjs.js?type=dev
+[npmv-image]: https://img.shields.io/npm/v/emk-cli.svg
+[npmv-url]: https://www.npmjs.com/package/emk-cli
+[travis-image]: https://travis-ci.org/blake-regalia/emk.js.svg?branch=master
+[travis-url]: https://travis-ci.org/blake-regalia/emk.js
+[david-image]: https://david-dm.org/blake-regalia/emk.js.svg
+[david-url]: https://david-dm.org/blake-regalia/emk.js
+[david-dev-image]: https://david-dm.org/blake-regalia/emk.js/dev-status.svg
+[david-dev-url]: https://david-dm.org/blake-regalia/emk.js?type=dev
 
 **Make** had it pretty well figured out. When it comes to node.js projects however, intricate build tasks can quickly exceed the capabilities of the Makefile language.  On the other hand, modern ECMAScript allows for very expressive and concise scripting.
 
-This build tool reimagines **Make** in an ECMAScript context by using `mk.js` files, which leverages `bash` to execute build commands.
+This build tool reimagines **Make** in an ECMAScript context by using `emk.js` files, which leverages `bash` to execute build commands.
 
 ## Install:
 Best to save it as a devDependency with your project:
 ```bash
-$ npm install --save-dev mkjs-cli
+$ npm install --save-dev emk
 
 # also nice to have the binary linked
-$ npm i -g mkjs-cli
+$ npm i -g emk
 ```
 
 ## Usage
 ```
-$ mk --help
+$ emk --help
 # ...OR...
-$ mkjs --help
-# ...OR...
-$ npx mkjs-cli --help
+$ npx emk --help
 
-  Usage: mk [options] [targets...]
+  Usage: emk [options] [targets...]
 
   Options:
 
     -v, --version  output the version number
     -n, --dry-run  show the targets and commands without executing them
     -s, --silent   do not echo commands
-    -w, --watch    watch dependency files and re-mk targets
-    -f, --file     use specified mkfile
+    -w, --watch    watch dependency files and re-emk targets
+    -f, --file     use specified emk file
     -h, --help     output usage information
 
 ```
@@ -57,10 +55,10 @@ project/
   ├─ lang.jisonlex
   └─ index.js  
 ├─ package.json
-└─ mk.js
+└─ emk.js
 ```
 
-Your build file is `mk.js`:
+Your build file is `emk.js`:
 ```js
 module.exports = {
     all: 'index parser',
@@ -98,7 +96,7 @@ module.exports = {
 
 Then we can simply run the default `all` target and watch dependency files for updates:
 ```bash
-$ mk -w
+$ emk -w
 ```
 
 Now, in this example, a change to any file under `src/` will automatically trigger its targets to be re-run.
@@ -112,7 +110,7 @@ Now, in this example, a change to any file under `src/` will automatically trigg
 ### Targets
 A target is assumed to be the relative path to a destination file so that the build tool can check its 'date modified' timestamp to see if any of its dependencies are newer (so that it knows whether or not to rebuild it). Using what Make calls 'phony' targets allows recipes to specify dependencies without creating a file to satisfy the presumed target path. 
 
-With `mkjs`, any recipe that does not have a `.run` property is assumed to be phony. We only need to make phony-ness explicit when there is a `.run` property on a phony target. For example, 
+With `emk`, any recipe that does not have a `.run` property is assumed to be phony. We only need to make phony-ness explicit when there is a `.run` property on a phony target. For example, 
 ```js
 {
     all: 'index',  // no `.run` property -- obviously phony
@@ -130,10 +128,10 @@ With `mkjs`, any recipe that does not have a `.run` property is assumed to be ph
 
 From the command line, any one of these targets can be specified:
 ```bash
-$ mk all
-$ mk index
-$ mk build/index.js
-$ mk clean
+$ emk all
+$ emk index
+$ emk build/index.js
+$ emk clean
 ```
 
 ### Patterns
@@ -172,7 +170,7 @@ Instead of enumerating all target paths, we can use a word pattern to generalize
 ```
 
 #### Regular Expression Capture
-You may need more control over the patterns your targets match. The more advanced way to embed patterns in targets is by creating named regular expressions in the mk-file config:
+You may need more control over the patterns your targets match. The more advanced way to embed patterns in targets is by creating named regular expressions in the emk-file config:
 `'&{pattern_name}': /{regex}/,`  -- where `pattern_name` matches `/^[A-Za-z_][A-Za-z_0-9]*$/`.
 
 This creates a pattern that can be referenced in build target strings and will consequently create variables that can be referenced anywhere inside the build rule. Referencing a pattern from a build target can optionally include the name of the variable to store captures in (defaults to the name of the pattern):
