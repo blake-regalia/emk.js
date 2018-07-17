@@ -7,7 +7,7 @@
     "build": "./build"
   },
   "scripts": {
-    "build": "mkdir -p build/component && cp src/component/*.js build/component && jison ./src/component/grammar.jison ./src/component/lex.jisonlex -o build/component/parser.js && cp src/main/* build/"
+    "build": "mkdir -p build/fragment && cp src/fragment/*.js build/fragment && jison ./src/fragment/grammar.jison ./src/fragment/lex.jisonlex -o build/fragment/parser.js && cp src/main/* build/"
   },
   "bin": {
     "emk": "build/main.js"
@@ -21,6 +21,7 @@
   "author": "Blake Regalia <blake.regalia@gmail.com> (blake-regalia.com)",
   "license": "ISC",
   "dependencies": {
+    "bash-glob": "^2.0.0",
     "chalk": "^2.4.1",
     "yargs": "^12.0.1"
   }

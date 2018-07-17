@@ -4,7 +4,7 @@
 	Object.assign(global, require('./ast.js'));
 %}
 
-%start component
+%start Fragment
 
 /* enable EBNF grammar syntax */
 %ebnf
@@ -14,7 +14,13 @@
 /* language grammar         */
 /* ------------------------ */
 
-component
+
+Fragment
+	: fragment EOF
+		{ return Fragment($fragment) }
+	;
+
+fragment
 	: text -> type('text', $text)
 	| LABEL -> type('label', $LABEL.slice(1))
 	| '(' glob ')' -> type('capture_glob', $glob)
@@ -22,7 +28,7 @@ component
 	;
 
 text
-	: TEXT text -> $TEXT+''
+	: TEXT text -> $TEXT+$text+''
 	| -> ''
 	;
 

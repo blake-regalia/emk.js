@@ -45,3 +45,4 @@ double_quoted_string 	["](?:[^"\\]|\\.)*["]
 <regex>")"						this.popState(); return ')';
 
 .									return 'TEXT';
+<<EOF>> 							return 'EOF';

@@ -1,55 +1,52 @@
-// dogfooding
-
-const pd_build = 'build';
-const pdg_component = `${pd_build}/:component`;
-
-let s_dep_self_dir = '$(dirname "$@")';
+const fs = require('fs');
 
 module.exports = {
-	all: 'targets',
+	defs: {
+		fragment_js: fs.readdirSync('./src/fragment')
+			.filter(s => s.endsWith('.js')),
 
+		main_file: [
+			'graph.js',
+			'v2.js',
+		],
 
-	targets: [
-		'assembler',
-		'ast',
-		'parser',
-	].map(s => `${pd_build}/targets/${s}.js`),
+		// main: {'src/main':'*.js'},
+		// fragment: {'src/fragment':'*.js'},
 
-
-	[`${pdg_component}`]: {
-		run: /* syntax: bash */ `
-			# make build dir
-			echo "$ mkdir -p $@"
-
-			# copy package.json to build dir
-			echo "$ cp package.json > $@/package.json"
-		`,
+		// fragment_js: 'src/fragment/*.js',
+		// fragment_js: {
+		// 	'src/fragment': '*.js',
+		// },
 	},
 
-
-	[`${pdg_component}/parser.js`]: {
-		case: true,
-		deps: [
-			...['*.jison', '*.jisonlex']
-				.map(s => `src/$component/${s}`),
-			s_dep_self_dir,
-		],
-		run: /* syntax: bash */ `
-			# compile grammar and lex; output to component's build dir
-			jison $1 $2 -o $@
-		`,
+	tasks: {
+		all: 'build/**',
 	},
 
+	outputs: {
+		build: {
+			main: {
+				':main_file': h => ({copy:`src/main/${h.main_file}`}),
+			},
 
-	[`${pdg_component}/:code.js`]: {
-		case: true,
-		deps: [
-			'src/$component/$code.js',
-			s_dep_self_dir,
-		],
-		run: /* syntax: bash */ `
-			# copy src file to component's build dir
-			cp $1 $@
-		`,
+			fragment: {
+				// 'package.json': () => ({copy:'src/fragment/package.json'}),
+
+				':fragment_js': h => ({copy:`src/fragment/${h.fragment_js}`}),
+
+				'parser.js': () => ({
+					deps: [
+						'src/fragment/*.{jison,jisonlex}',
+						// ...['*.jison', '*.jisonlex']
+						// 	.map(s => `src/fragment/${s}`),
+					],
+					run: /* syntax: bash */ `
+						# compile grammar and lex
+						jison $1 $2 -o $@
+					`,
+				}),
+
+			},
+		},
 	},
 };

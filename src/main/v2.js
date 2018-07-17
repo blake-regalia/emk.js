@@ -3,14 +3,26 @@
 const fs = require('fs');
 const cp = require('child_process');
 const path = require('path');
+const util = require('util');
 const vm = require('vm');
 
+const glob = require('bash-glob');
 const chalk = require('chalk');
 const yargs = require('yargs');
 const yargs_parser = require('yargs-parser');
 
-const component = require('./component/parser.js');
-const assembler = require('./component/assembler.js');
+const graph = require('./graph.js');
+
+const fragment_parser = require('./fragment/parser.js');
+const {
+	fragment_types,
+	pattern_fragment,
+	pattern_fragment_text,
+	pattern_fragment_enum,
+	pattern_fragment_regex,
+} = require('./fragment/assembler.js');
+
+const pattern_fragment_from_string = (s_key, k_emkfile) => fragment_parser.parse(s_key).bind(k_emkfile);
 
 const log = {
 	log(s_tag, s_text) {
@@ -34,6 +46,13 @@ const log = {
 	error(s_tag, s_text) {
 		console.error(`*${chalk.red(`[${s_tag}]`)} ${s_text}`);
 	},
+	fail(s_tag, s_text, s_quote='', xc_exit=1) {
+		console.error(`${chalk.redBright.bgBlackBright(` ${s_tag} `)} > ${chalk.red(s_text)}`
+				+(s_quote
+					? chalk.red(`\n${s_quote.split('\n').map(s => `    > ${s}`).join('\n')}`)
+					: ''));
+		process.exit(xc_exit || 1);
+	},
 };
 
 
@@ -43,7 +62,7 @@ const F_GLOB_TO_REGEX = (s, s_wildcard_quantifier='+') => s
 	.replace(/[*]/g, `([^/]${s_wildcard_quantifier})`);
 const T_EVAL_TIMEOUT = 5000;  // allow up to 5 seconds for script to load
 
-const evaluate = (s_script, p_file, pd_dir, t_timeout=T_EVAL_TIMEOUT) => {
+const evaluate = (s_script, p_file, pd_dir, t_timeout=T_EVAL_TIMEOUT, b_module=false) => {
 	let h_module = {exports:{}};
 	let h_nodejs_env = {
 		__dirname: pd_dir,
@@ -77,11 +96,151 @@ const evaluate = (s_script, p_file, pd_dir, t_timeout=T_EVAL_TIMEOUT) => {
 	});
 
 	// evaluate code, grab exports
-	return y_script.runInNewContext(h_context, {
+	let w_eval = y_script.runInNewContext(h_context, {
 		filename: p_file,
 		timeout: t_timeout,
 	});
+
+	return b_module? h_context.__EMK.module.exports: w_eval;
 };
+
+
+class target_fragment {
+	static from_command(g_command, s_split) {
+		let {
+			target: s_target,
+			args: h_args,
+		} = g_command;
+
+		// split regex
+		let r_split = new RegExp('\\'+s_split, 'g');
+
+		// divide target path into fragments
+		let a_fragments = s_target.split(r_split);
+
+		// no wildcards; return text fragments
+		if(!s_target.includes('*')) {
+			return a_fragments.map(s => new target_fragment_text(s));
+		}
+
+		// pattern fragments
+		let a_pattern = [];
+
+		// each fragment
+		for(let s_frag of a_fragments) {
+			// some file
+			if('*' === s_frag) {
+				a_pattern.push(new target_fragment_wild());
+			}
+			// all targets recursively
+			else if('**' === s_frag) {
+				a_pattern.push(new target_fragment_wild_recursive());
+			}
+			// globstar pattern
+			else if(s_frag.includes('*')) {
+				a_pattern.push(target_fragment_pattern.from_glob(s_frag));
+			}
+			// exact text
+			else {
+				a_pattern.push(new target_fragment_text(s_frag));
+			}
+		}
+
+		return a_pattern;
+	}
+
+	constructor(g_this) {
+		Object.assign(this, g_this);
+	}
+}
+
+class target_fragment_text extends target_fragment {
+	constructor(s_text) {
+		super({
+			source: null,
+			text: s_text,
+		});
+	}
+
+	or_wild_recursive() {
+		return new target_fragment_pattern({
+			source: this,
+			pattern: new RegExp(`^(?:${F_TEXT_TO_REGEX(this.text, '+')}|${F_GLOB_TO_REGEX('*', '*')})$`),
+		});
+	}
+
+	toString() {
+		return this.text;
+	}
+}
+
+class target_fragment_pattern extends target_fragment {
+	static from_glob(s_frag) {
+		return new target_fragment_pattern({
+			source: null,
+			pattern: new RegExp(`^${F_GLOB_TO_REGEX(s_frag, '+')}$`),
+			frag: s_frag,
+		});
+	}
+
+	or_wild_recursive() {
+		// only if this hasn't been wild_recursed already
+		if(!this.source) {
+			return new target_fragment_pattern({
+				source: this,
+				pattern: new RegExp(`^(?:${F_GLOB_TO_REGEX(this.frag, '+')}|${F_GLOB_TO_REGEX('*', '*')})$`),
+				frag: this.frag,
+			});
+		}
+		else {
+			return this;
+		}
+	}
+
+	// eslint-disable-next-line class-methods-use-this
+	toString() {
+		if(this.source) return this.source.toString();
+		return `(${this.pattern.toString().slice(1, -1)})`;
+	}
+}
+
+class target_fragment_wild extends target_fragment {
+	constructor(g_extra={}) {
+		super({
+			source: null,
+			wild: true,
+			...g_extra,
+		});
+	}
+
+	// eslint-disable-next-line class-methods-use-this
+	or_wild_recursive() {
+		return new target_fragment_wild_recursive();
+	}
+
+	// eslint-disable-next-line class-methods-use-this
+	toString() {
+		return '*';
+	}
+}
+
+class target_fragment_wild_recursive extends target_fragment_wild {
+	constructor() {
+		super({
+			recurse: true,
+		});
+	}
+
+	or_wild_recursive() {
+		return this;
+	}
+
+	// eslint-disable-next-line class-methods-use-this
+	toString() {
+		return '**';
+	}
+}
+
 
 
 const parse_target = (s_target, s_split) => {
@@ -90,6 +249,11 @@ const parse_target = (s_target, s_split) => {
 
 	// divide target path into fragments
 	let a_fragments = s_target.split(r_split);
+
+	// no wildcards; return text fragments
+	if(!s_target.includes('*')) {
+		return a_fragments.map(s => ({text:s}));
+	}
 
 	// path components
 	let a_path = [];
@@ -100,9 +264,18 @@ const parse_target = (s_target, s_split) => {
 		if('*' === s_frag) {
 			a_path.push({
 				pattern: new RegExp(`^${F_GLOB_TO_REGEX(s_frag, '*')}$`),
+				wild: true,
 			});
 		}
-		// wildcard pattern
+		// all targets recursively
+		else if('**' === s_frag) {
+			a_path.push({
+				pattern: new RegExp(`^${F_GLOB_TO_REGEX('*', '*')}$`),
+				wild: true,
+				recurse: true,
+			});
+		}
+		// globstar pattern
 		else if(s_frag.includes('*')) {
 			a_path.push({
 				pattern: new RegExp(`^${F_GLOB_TO_REGEX(s_frag, '+')}$`),
@@ -120,12 +293,6 @@ const parse_target = (s_target, s_split) => {
 };
 
 
-class error_emkfile extends Error {
-	constructor(s_msg) {
-		super(s_msg);
-	}
-}
-
 class provenance extends Array {
 	last() {
 		return this[this.length-1].value;
@@ -137,30 +304,42 @@ class provenance extends Array {
 }
 
 class subtree {
-	constructor(h_input, fk_child=null, a_path=[]) {
+	constructor(k_emkfile, h_input, s_split, fk_child=null, a_prov=[]) {
 		let h_tree = {};
 
 		// build subtrees recursively
 		for(let s_key in h_input) {
 			let z_child = h_input[s_key];
 
+			// prep subprov
+			let a_subprov = [...a_prov, s_key];
+
 			// subtree
-			if('object' === typeof z_child && Object === z_child) {
-				h_tree[s_key] = new subtree(z_child, fk_child, [...a_path, s_key]);
+			if('object' === typeof z_child && Object.toString() === z_child.constructor.toString()) {
+				h_tree[s_key] = new subtree(k_emkfile, z_child, s_split, fk_child, a_subprov);
 			}
 			// leaf node
 			else {
 				// do child callback
-				if(fk_child) z_child = fk_child(z_child, a_path);
+				if(fk_child) z_child = fk_child(z_child, a_subprov);
 
 				// store to tree
 				h_tree[s_key] = z_child;
 			}
 		}
 
+		// parse each key in tree for matching
+		let h_map = {};
+		for(let s_key in h_tree) {
+			h_map[s_key] = pattern_fragment_from_string(s_key, k_emkfile);
+		}
+
 		Object.assign(this, {
+			emkfile: k_emkfile,
 			tree: h_tree,
-			path: a_path,
+			prov: a_prov,
+			split: s_split,
+			map: h_map,
 		});
 	}
 
@@ -168,22 +347,131 @@ class subtree {
 		return this.tree[s_key];
 	}
 
-	has(s_key) {
-		return s_key in this.tree;
+
+	match_text(s_text) {
+		let a_texts = [];
+		let a_enums = [];
+		let a_regexes = [];
+
+		// each pattern frag branch in tree
+		for(let [s_key, k_frag] of Object.entries(this.map)) {
+			// pattern frag matches text
+			if(k_frag.test_text(s_text)) {
+				// text pattern
+				if(k_frag instanceof pattern_fragment_text) {
+					a_texts.push(s_key);
+				}
+				// enum pattern
+				else if(k_frag instanceof pattern_fragment_enum) {
+					// matching item in enum
+					a_enums.push({
+						key: s_key,
+						frag: s_text,
+						matches: k_frag.binding? {[k_frag.binding]: s_text}: {},
+					});
+				}
+				// regex pattern
+				else if(k_frag instanceof pattern_fragment_regex) {
+					a_regexes.push({
+						key: s_key,
+						frag: s_text,
+						matches: k_frag.match_text(s_text),
+					});
+				}
+			}
+		}
+
+		return {
+			texts: a_texts,
+			enums: a_enums,
+			regexes: a_regexes,
+		};
 	}
 
-	* match(r_pattern) {
-		let h_tree = this.tree;
-		for(let s_key in h_tree) {
-			if(r_pattern.test(s_key)) {
-				yield s_key;
+	* match_wild() {
+		// each pattern frag branch in tree
+		for(let [s_key, k_frag] of Object.entries(this.map)) {
+			// text pattern or enum pattern
+			if(k_frag instanceof pattern_fragment_text) {
+				yield {
+					key: s_key,
+					frag: s_key,
+					matches: {},
+				};
+			}
+			// enum fragment
+			else if(k_frag instanceof pattern_fragment_enum) {
+				// each item in enum
+				for(let s_frag of k_frag.enum) {
+					// struct
+					yield {
+						key: s_key,
+						frag: s_frag,
+						matches: k_frag.binding? {[k_frag.binding]:s_frag}: {},
+					};
+				}
+			}
+			// regex pattern
+			else if(k_frag instanceof pattern_fragment_regex) {
+				// issue warning
+				log.warn(this.emkfile, `cannot use wildcard target '*' against path pattern at '${this.prov.join(this.split)}'`);
+			}
+		}
+	}
+
+	* match_pattern(r_pattern) {
+		// each pattern frag branch in tree
+		for(let [s_key, k_frag] of Object.entries(this.map)) {
+			// text fragment
+			if(k_frag instanceof pattern_fragment_text) {
+				// matches pattern
+				if(k_frag.test_pattern(r_pattern)) {
+					yield {
+						key: s_key,
+						frag: s_key,
+						matches: {},
+					};
+				}
+			}
+			// enum fragment
+			else if(k_frag instanceof pattern_fragment_enum) {
+				// matches pattern; yield
+				let s_frag = k_frag.match_pattern(r_pattern);
+				if(null !== s_frag) {
+					yield {
+						key: s_key,
+						frag: s_frag,
+						matches: k_frag.binding? {[k_frag.binding]:s_frag}: {},
+					};
+				}
+			}
+			// regex pattern; issue warning
+			else if(k_frag instanceof pattern_fragment_regex) {
+				log.warn(this.emkfile, `cannot use pattern target '${r_pattern.toString()}' against path pattern at '${this.prov.join(this.split)}'`);
 			}
 		}
 	}
 }
 
-class task {
-	constructor(z_value) {
+class executask {
+	constructor(g_this) {
+		Object.assign(this, g_this, {
+			mark: 0,
+		});
+	}
+
+	identical(k_other) {
+		let as_deps_other = new Set(k_other.deps);
+		let as_deps_this = new Set(this.deps);
+
+		return k_other.run === this.run
+			&& as_deps_other.size === as_deps_this.size
+			&& k_other.deps.every(s => as_deps_this.has(s));
+	}
+}
+
+class task_creator {
+	constructor(a_prov, z_value) {
 		let f_create;
 
 		// list of dependencies
@@ -204,6 +492,7 @@ class task {
 		}
 
 		Object.assign(this, {
+			prov: a_prov,
 			create: f_create,
 		});
 	}
@@ -218,27 +507,26 @@ class task {
 
 	}
 
-	prepare(s_target, h_args) {
+	prepare(s_path, h_args) {
 		let {
 			deps: a_deps=[],
 			run: s_run=null,
 		} = this.create(h_args);
 
-		return {
-			invocation: `#${s_target}\0${JSON.stringify(h_args)}\0${s_run}`,
+		return new executask({
+			id: `*task\0${a_deps.join('|')}\0${s_run}`,
+			path: s_path,
 			deps: a_deps,
-			run() {
-
-			},
-		};
+			run: s_run,
+		});
 	}
 }
 
-class output {
-	constructor(h_map) {
+class output_creator {
+	constructor(a_prov, f_create) {
 		Object.assign(this, {
-			map: h_map,
-			patterns: {},
+			prov: a_prov,
+			create: f_create,
 		});
 	}
 
@@ -269,6 +557,61 @@ debugger;
 			}
 		}
 	}
+
+	prepare(a_path, h_args) {
+		let {
+			deps: a_deps=[],
+			run: s_run=null,
+			copy: s_src=null,
+		} = this.create(h_args);
+
+		// normalize deps
+		if('string' === typeof a_deps) a_deps = [a_deps];
+
+		// copy
+		if(s_src) {
+			// test source is file and read access
+			try {
+				fs.accessSync(s_src, fs.constants.R_OK);
+			}
+			catch(e_access) {
+				log.fail(a_path.join('/'), `'copy' cannot read source file dependency: '${s_src}'`, e_access.message);
+			}
+
+			a_deps = [s_src];
+			s_run = /* syntax: bash */ `
+				# copy from src to dest
+				cp $1 $@
+			`;
+		}
+
+		return new executask({
+			id: a_path.join('/'),
+			path: a_path.join('/'),
+			deps: a_deps,
+			run: s_run,
+		});
+	}
+}
+
+class dep_graph_node {
+	constructor() {
+
+	}
+}
+
+class execusrc extends executask {
+	constructor(s_file, p_cwd, dk_stats, s_path) {
+		super({
+			id: s_file,
+			path: s_path,
+			deps: [],
+			run: null,
+			file: s_file,
+			cwd: p_cwd,
+			stats: dk_stats,
+		});
+	}
 }
 
 class emkfile {
@@ -276,41 +619,17 @@ class emkfile {
 		// normalize defs
 		let h_defs = {};
 		for(let [s_key, z_value] of Object.entries(g_emkfile.defs)) {
-			// enumeration
+			// enumeration; create instance
 			if(Array.isArray(z_value)) {
-				let a_items = z_value;
-
-				// convert to regex
-				let s_pattern = a_items.map(F_TEXT_TO_REGEX).join('|');
-
-				// create def struct
-				h_defs[s_key] = {
-					type: 'enumeration',
-					value: z_value,
-					pattern: [
-						`(${s_pattern})`,
-						(new RegExp(s_pattern+'|')).exec('').length,
-						s_key,
-					],
-				};
+				h_defs[s_key] = pattern_fragment_enum.from_list(this, z_value, s_key);
 			}
-			// glob pattern
+			// glob pattern; create instance
 			else if('string' === typeof z_value) {
-				// create def struct
-				h_defs[s_key] = {
-					type: 'glob',
-					value: z_value,
-					pattern: assembler.eval.glob({value:z_value}, this),
-				};
+				h_defs[s_key] = pattern_fragment_regex.from_glob_str(this, z_value, s_key);
 			}
-			// regular expression
+			// regular expression; create instance
 			else if(z_value && 'object' === typeof z_value && z_value instanceof RegExp) {
-				// create def struct
-				h_defs[s_key] = {
-					type: 'regex',
-					value: z_value,
-					pattern: assembler.eval.regex({value:z_value}, this),
-				};
+				h_defs[s_key] = pattern_fragment_regex.from_regex_str(this, z_value, s_key);
 			}
 			// other
 			else {
@@ -325,142 +644,258 @@ class emkfile {
 			args: g_args,
 
 			defs: h_defs,
+		});
 
-			tasks: new subtree(g_emkfile.tasks, (z_leaf, a_path) => {
-				let p_task = a_path.join('.');
+		// process subtrees
+		Object.assign(this, {
+			tasks: new subtree(this, g_emkfile.tasks, '.', (z_leaf, a_prov) => {
+				let si_task = a_prov.join('.');
 
 				// task id contains slashes
-				if(p_task.includes('/')) {
-					log.warn(p_emkfile, `one of your task names contains a slash \`/\` character: '${p_task}'.\n\tthis may cause an unwanted collision with an output target`);
+				if(si_task.includes('/')) {
+					log.warn(p_emkfile, `one of your task names contains a slash \`/\` character: '${si_task}'.\n\tthis may cause an unwanted collision with an output target`);
 				}
 
 				// normalize leaf
-				return new task(z_leaf);
+				return new task_creator(a_prov, z_leaf);
 			}),
 
-			outputs: new subtree(g_emkfile.outputs, (z_leaf, a_path) => {
+			outputs: new subtree(this, g_emkfile.outputs, '/', (z_leaf, a_prov) => {
+				let si_output = a_prov.join('/');
+
 				// check child type
 				if('function' !== typeof z_leaf) {
-					this.fail(`expected value of key '${a_path.join('/')}' in output tree to be subtree or function; instead encountered: '${z_leaf}'`);
+					log.fail(si_output, `expected value to be subtree or function; instead encountered: '${z_leaf}'`);
 				}
 
 				// normalize leaf
-				return new output(z_leaf);
+				return new output_creator(a_prov, z_leaf);
 			}),
 		});
 	}
 
-	// critical failure
-	fail(s_text) {
-		log.error(path.relative(process.cwd(), this.source), s_text);
-		process.exit(1);
+	// warn
+	warn(s_text) {
+		log.warn(path.relative(this.args.cwd || process.cwd(), this.source), s_text);
 	}
 
-	search(z_node, a_target, s_split, s_path='') {
+	// critical failure
+	fail(s_text) {
+		log.fail(path.relative(this.args.cwd || process.cwd(), this.source), s_text);
+	}
+
+	search(g_search) {
+		let {
+			node: z_node,
+			target: a_target,
+			split: s_split,
+			info: h_info,
+			path: a_path=[],
+		} = g_search;
+
 		// node is a (sub)tree
 		if(z_node instanceof subtree) {
-			// append separator
-			if(s_path) s_path += s_split;
-
 			// reached end of target
 			if(!a_target.length) {
-				log.warn(this.source, `target '${s_path}' leads to a non-leaf node. if you meant to run all sub-tasks, append a '${s_split}*' to the end`);
+				this.warn(`target '${a_path.join(s_split)}' leads to a non-leaf node. if you meant to run all sub-tasks, append a '${s_split}*' to the end, or use a recursive wildcard '**'`);
 				return [];
 			}
 
 			// cast to instance
 			let k_node = z_node;
 
-			// destructure target
-			let {
-				text: s_text=null,
-				pattern: r_pattern=null,
-			} = a_target[0];
+			// ref target fragment at head of path
+			let k_target_frag = a_target[0];
 
-			// exact text and key match in node; recurse
-			if(s_text && k_node.has(s_text)) {
-				return this.search(k_node.at(s_text), a_target.slice(1), s_split, s_path+s_text);
+			// create subtarget
+			let a_subtarget = a_target.slice(1);
+
+			// recursive glob; mutate sub pattern if it exists
+			if(k_target_frag instanceof target_fragment_wild_recursive) {
+				// more after this; OR in wild recursive
+				if(a_subtarget.length) {
+					a_subtarget[0] = a_subtarget[0].or_wild_recursive();
+				}
+				// none after this, repeat wild recursive
+				else {
+					a_subtarget = [k_target_frag];
+				}
 			}
-			// pattern
-			else if(r_pattern) {
+
+			// prep subsearch
+			let g_subsearch = {
+				target: a_subtarget,
+				split: s_split,
+				info: h_info,
+			};
+
+
+			// target frag is exact text
+			if(k_target_frag instanceof target_fragment_text) {
+				// ref text from target frag
+				let s_text = k_target_frag.text;
+
+				// match text
+				let {
+					texts: a_texts,
+					enums: a_enums,
+					regexes: a_regexes,
+				} = k_node.match_text(s_text);
+
+				// update path
+				g_subsearch.path = [...a_path, s_text];
+
+				// exact text match; take only
+				if(a_texts.length) {
+					g_subsearch.node = k_node.at(a_texts[0]);
+				}
+				// one of enum, or one of regex
+				else if(a_enums.length || a_regexes.length) {
+					// take first
+					let {
+						key: s_key,
+						frag: s_frag,
+						matches: h_matches,
+					} = a_enums[0] || a_regexes[0];
+
+					// update subsearch
+					Object.assign(g_subsearch, {
+						node: k_node.at(s_key),
+						path: [...a_path, s_frag],
+						info: {
+							...h_info,
+							...h_matches,
+						},
+					});
+				}
+				// nothing matched
+				else {
+					return [];
+				}
+
+				// recurse
+				return this.search(g_subsearch);
+			}
+			// wild pattern; fork all
+			else if(k_target_frag instanceof target_fragment_wild) {
 				let a_hits = [];
-				let a_subtarget = a_target.slice(1);
+
+				// all paths
+				for(let {key:s_key, frag:s_frag, matches:h_matches} of k_node.match_wild()) {
+					a_hits.push(...this.search({
+						...g_subsearch,
+						node: k_node.at(s_key),
+						path: [...a_path, s_frag],
+						info: {
+							...h_info,
+							...h_matches,
+						},
+					}));
+				}
+
+				return a_hits;
+			}
+			// non-wild pattern; match each
+			else if(k_target_frag instanceof target_fragment_pattern) {
+				let a_hits = [];
 
 				// each key that matches pattern
-				for(let s_key of k_node.match(r_pattern)) {
-					a_hits.push(...this.search(k_node.at(s_key), a_subtarget, s_split, s_path+s_key));
+				for(let {key:s_key, frag:s_frag, matches:h_matches} of k_node.match_pattern(k_target_frag.pattern)) {
+					a_hits.push(...this.search({
+						...g_subsearch,
+						node: k_node.at(s_key),
+						path: [...a_path, s_frag],
+						info: {
+							...h_info,
+							...h_matches,
+						},
+					}));
 				}
 
 				return a_hits;
 			}
 			// something else
 			else {
-				throw new Error(`unknown target element: ${k_node}`);
+				throw new Error(`unknown target qualifiers: ${a_target[0]}`);
 			}
 		}
 		// node is a leaf, more to target
-		else if(a_target.length) {
-			log.warn(this.source, `cannot navigate to '${s_split}${a_target.join(s_split)}' since '${s_path}' reached a leaf node`);
+		else if(a_target.length && !(a_target[0] instanceof target_fragment_wild_recursive)) {
+			log.warn(this.source, `cannot navigate to '${s_split}${a_target.join(s_split)}' since '${a_path.join(s_split)}' reached a leaf node`);
 			return [];
 		}
 		// end of target
 		else {
-			return [z_node];
+			return [z_node.prepare(a_path, h_info, this.args.cwd)];
 		}
 	}
 
-	invoke(a_tasks, h_args, h_nodes, h_graph) {
-		let as_invocations = new Set();
+	add(a_executasks, h_args, k_graph) {
+		let as_ids = new Set();
 
 		// each matching task
-		for(let g_task of a_tasks) {
-			let {
-				invocation: si_invocation,
-				deps: a_deps,
-				run: f_run,
-			} = g_task.prepare(h_args);
+		for(let k_executask of a_executasks) {
+			let si_task = k_executask.id;
 
-			// add to set
-			as_invocations.add(si_invocation);
+			// add to id set
+			as_ids.add(si_task);
 
 			// first encounter of node
-			if(!(si_invocation in h_nodes)) {
-				let as_dep_invocations = new Set();
+			if(!(si_task in k_graph.nodes)) {
+				// add to nodes
+				k_graph.nodes[si_task] = k_executask;
 
-				// prepare deps
-				for(let s_dep_call of a_deps) {
-					as_dep_invocations = [
-						...as_dep_invocations,
-						...this.prepare({
+				let as_dep_ids = new Set();
+
+				// plot deps
+				for(let s_dep_call of k_executask.deps) {
+					as_dep_ids = new Set([
+						...as_dep_ids,
+						...this.plot({
 							call: s_dep_call,
 							args: h_args,
-						}, h_nodes, h_graph),
-					];
+						}, k_graph, k_executask.path),
+					]);
 				}
 
-				// save to nodes map
-				h_nodes[si_invocation] = {
-					deps: Array.from(as_dep_invocations),
-					run: f_run,
-				};
+				// save to graph
+				k_graph.outs[si_task] = as_dep_ids;
+			}
+			// node already exists
+			else {
+				let k_other = k_graph.nodes[si_task];
+
+				// they are not identical
+				if(!k_executask.identical(k_other)) {
+					log.fail(k_executask.path, `multiple tasks are trying to build the same output file yet are indicating different dependencies or run commands`, util.inspect({
+						'a)': {
+							deps: k_executask.deps,
+							run: k_executask.run,
+						},
+						'b)': {
+							deps: k_other.deps,
+							run: k_other.run,
+						},
+					}));
+				}
 			}
 		}
 
-		return Array.from(as_invocations);
+		return Array.from(as_ids);
 	}
 
-	prepare(g_call, h_nodes, h_graph) {
+	plot(g_call, k_graph, s_path) {
 		let {
 			call: s_call,
-			args: h_args_in,
+			args: h_args_pre,
 		} = g_call;
-debugger;
+
 		// separate target and config
 		let [, s_target, s_config] = /^([^\s]+)(?:\s+(.*))?$/.exec(s_call);
 
 		// make args
 		let h_args = {
-			...h_args_in,
+			...h_args_pre,
 			...(s_config
 				? (() => {
 					try {
@@ -473,48 +908,108 @@ debugger;
 				: {}),
 		};
 
+		// build command
+		let g_command = {
+			target: s_target,
+			args: h_args,
+		};
+
 		// attempt to match against task
 		{
 			// turn target string into task descriptor
-			let a_target = parse_target(s_target, '.');
+			let a_target = target_fragment.from_command(g_command, '.');
 
 			// search tasks
-			let a_tasks = this.search(this.tasks, a_target, '.');
+			let a_executasks = this.search({
+				node: this.tasks,
+				target: a_target,
+				split: '.',
+				info: h_args,
+			});
 
 			// tasks matched
-			if(a_tasks.length) {
-				return this.invoke(a_tasks, h_args, h_nodes, h_graph);
+			if(a_executasks.length) {
+				return this.add(a_executasks, h_args, k_graph);
 			}
 		}
 
 		// attempt to match against output
 		{
 			// turn target string into task descriptor
-			let a_target = parse_target(s_target, '/');
+			let a_target = target_fragment.from_command(g_command, '/');
 
 			// search outputs
-			let a_outputs = this.search(this.outputs, a_target, '/');
+			let a_executasks = this.search({
+				node: this.outputs,
+				target: a_target,
+				split: '/',
+				info: h_args,
+			});
 
 			// outputs matched
-			if(a_outputs.length) {
-				return this.invoke(a_outputs, h_args, h_nodes, h_graph);
+			if(a_executasks.length) {
+				return this.add(a_executasks, h_args, k_graph);
 			}
 		}
 
-		// nothing matched
-		this.fail(`target '${s_target}' did not match any task patterns`);
+		// should be a file pattern dependency
+		{
+			// gather from ls
+			let a_files;
+			try {
+				a_files = glob.sync(s_target, {
+					cwd: this.args.cwd,
+					failglob: true,
+					// globstar: true,
+				});
+			}
+			catch(e_glob) {
+				log.fail(s_path, `glob failed on '${s_target}'`, e_glob.message);
+			}
+
+			// no files
+			if(!a_files.length) {
+				log.fail(s_path, `target '${s_target}' did not match any task patterns nor does such a file dependency exist`);
+			}
+
+			// sources
+			let a_srcs = [];
+
+			// each file
+			for(let s_file of a_files) {
+				// test for exists
+				let dk_stats = fs.statSync(path.join(this.args.cwd, s_file));
+
+				// add file dependency
+				a_srcs.push(this.add([
+					new execusrc(s_file, this.args.cwd, dk_stats, s_target),
+				], h_args, k_graph));
+			}
+
+			return a_srcs;
+		}
 	}
 
 	run(a_calls) {
-		let h_nodes = {};
-		let h_graph = {};
+		let k_graph = new graph();
 
 		let as_invocations = new Set();
 		for(let g_call of a_calls) {
 			as_invocations = [
 				...as_invocations,
-				...this.prepare(g_call, h_nodes, h_graph),
+				...this.plot(g_call, k_graph, 'emk.js'),
 			];
+		}
+
+		// schedule rounds
+		let a_rounds = k_graph.schedule({
+			cycle: si_node => log.fail(si_node, 'detected dependency graph cycle at this node'),
+		});
+
+		// print
+		let c_stages = 0;
+		for(let a_tasks of a_rounds) {
+			log.info(`stage ${c_stages++}:`, a_tasks.map(si_task => `[${k_graph.nodes[si_task].id}]`).join('\t'));
 		}
 
 		debugger;
@@ -528,11 +1023,10 @@ async function load(p_emkfile, g_args={}) {
 	let s_emkfile = fs.readFileSync(p_emkfile, 'utf8');
 
 	// grab exports from emkfile
-	let g_emkfile = evaluate(s_emkfile, p_emkfile, g_args.cwd, g_args.timeout);
+	let g_emkfile = evaluate(s_emkfile, p_emkfile, g_args.cwd, g_args.timeout, true);
 
 	// create emk instance
 	let k_emkfile = new emkfile(g_emkfile, g_args, p_emkfile);
-debugger;
 
 	// run calls
 	await k_emkfile.run(g_args.calls);
@@ -649,6 +1143,9 @@ if(module === require.main) {
 
 	// extend args with commands
 	g_args.calls = a_calls;
+
+	// cwd
+	g_args.cwd = process.cwd();
 
 	// emk filename
 	let s_emk_file = g_args.file || 'emk.js';
