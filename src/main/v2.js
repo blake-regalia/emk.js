@@ -915,6 +915,7 @@ class execusrc extends executask {
 			cwd: p_cwd,
 			stats: dk_stats,
 			graph: null,
+			watcher: null,
 		});
 	}
 
@@ -925,9 +926,9 @@ class execusrc extends executask {
 
 		log.good(s_label, `${S_STATUS_PASS} modified ${time_ago(dk_stats.mtimeMs)} ago`);
 
-		// watch file
-		if(g_exec.watch) {
-			watch(s_label, (s_event, s_file) => {  // eslint-disable-line no-unused-vars
+		// watch file; not already watching
+		if(g_exec.watch && !this.watcher) {
+			this.watcher = watch(s_label, (s_event, s_file) => {  // eslint-disable-line no-unused-vars
 				if('update' === s_event) {
 					// print
 					log.info(s_label, 'file was modified');
@@ -1458,10 +1459,19 @@ class emkfile {
 		}
 	}
 
-	reload(s_event, s_file) {  // eslint-disable-line no-unused-vars
+	unwatch() {
 		// stop watching this file
 		this.watcher.close();
 
+		// close execusrc watchers
+		for(let [, k_executask] of Object.entries(this.graph.nodes)) {
+			if(k_executask instanceof execusrc && k_executask.watcher) {
+				k_executask.watcher.close();
+			}
+		}
+	}
+
+	reload(s_event, s_file) {  // eslint-disable-line no-unused-vars
 		// file was modified
 		if('update' === s_event) {
 			// shutdown this emkfile
@@ -1475,12 +1485,8 @@ class emkfile {
 			// print
 			this.warn(`💫  reloading emk file...`);
 
-			// close execusrc watchers
-			for(let [, k_executask] of Object.entries(this.graph.nodes)) {
-				if(k_executask instanceof execusrc && k_executask.watcher) {
-					k_executask.watcher.close();
-				}
-			}
+			// unwatch
+			this.unwatch();
 
 			// done
 			console.log(S_LINE_BREAK);
@@ -1493,6 +1499,10 @@ class emkfile {
 		}
 		// file was deleted
 		else if('remove' === s_event) {
+			// unwatch
+			this.unwatch();
+
+			// print
 			this.error(`🔥 ${s_file} file was deleted! continuing to watch dependency files...`);
 		}
 	}
