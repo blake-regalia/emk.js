@@ -6,21 +6,26 @@ const path = require('path');
 const util = require('util');
 const vm = require('vm');
 
+const mkdirp = require('mkdirp-promise');
+const watch = require('node-watch');
 const glob = require('bash-glob');
 const chalk = require('chalk');
 const yargs = require('yargs');
 const yargs_parser = require('yargs-parser');
 
+const fs_access = util.promisify(fs.access);
+const fs_stat = util.promisify(fs.stat);
+
 const graph = require('./graph.js');
 
-const fragment_parser = require('./fragment/parser.js');
+const fragment_parser = require('../fragment/parser.js');
 const {
 	fragment_types,
 	pattern_fragment,
 	pattern_fragment_text,
 	pattern_fragment_enum,
 	pattern_fragment_regex,
-} = require('./fragment/assembler.js');
+} = require('../fragment/assembler.js');
 
 const pattern_fragment_from_string = (s_key, k_emkfile) => fragment_parser.parse(s_key).bind(k_emkfile);
 
@@ -47,29 +52,81 @@ const log = {
 		console.error(`*${chalk.red(`[${s_tag}]`)} ${s_text}`);
 	},
 	fail(s_tag, s_text, s_quote='', xc_exit=1) {
-		console.error(`${chalk.redBright.bgBlackBright(` ${s_tag} `)} > ${chalk.red(s_text)}`
+		console.error(`-${chalk.redBright.bgBlackBright(` ${s_tag} `)} > ${chalk.red(s_text)}`
 				+(s_quote
-					? chalk.red(`\n${s_quote.split('\n').map(s => `    > ${s}`).join('\n')}`)
+					? chalk.red(`\n${s_quote.split('\n').map(s => `   > ${s}`).join('\n')}`)
 					: ''));
 		process.exit(xc_exit || 1);
 	},
 };
 
 
+const gobble = (s_text, s_space) => {
+	let m_pad = /^(\s+)/.exec(s_text.replace(/^\n+/, ''));
+	if(m_pad) {
+		return s_space+s_text.replace(new RegExp(`\\n${m_pad[1]}`, 'g'), '\n'+s_space).trim();
+	}
+	else {
+		return s_space+s_text.trim();
+	}
+};
+
+const T_SECONDS = 1000;
+const T_MINUTES = 60 * T_SECONDS;
+const T_HOURS = 60 * T_MINUTES;
+const T_DAYS = 24 * T_HOURS;
+const T_WEEKS = 7 * T_DAYS;
+
+const time_ago = (t_when) => {
+	let t_diff = Date.now() - t_when;
+
+	if(t_diff < T_SECONDS) {
+		return '< 1s';
+	}
+	else if(t_diff < T_MINUTES) {
+		return Math.round(t_diff / T_SECONDS)+'s';
+	}
+	else if(t_diff < T_HOURS) {
+		return Math.round(t_diff / T_MINUTES)+'m';
+	}
+	else if(t_diff < T_DAYS) {
+		return Math.round(t_diff / T_HOURS)+'h';
+	}
+	else if(t_diff < T_WEEKS) {
+		return Math.round(t_diff / T_DAYS)+'d';
+	}
+	else {
+		return Math.round(t_diff / T_WEEKS)+'w';
+	}
+};
+
 const F_TEXT_TO_REGEX = s => s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
 const F_GLOB_TO_REGEX = (s, s_wildcard_quantifier='+') => s
 	.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&')
 	.replace(/[*]/g, `([^/]${s_wildcard_quantifier})`);
+
 const T_EVAL_TIMEOUT = 5000;  // allow up to 5 seconds for script to load
+
+const S_ESC_CLEAR_EOL = '\u001B[K';
+const S_STATUS_PASS = chalk.keyword('orange')('⚡');
+const S_LINE_BREAK = '------------------------------------------------------';
+
 
 const evaluate = (s_script, p_file, pd_dir, t_timeout=T_EVAL_TIMEOUT, b_module=false) => {
 	let h_module = {exports:{}};
+	let f_require = s_package => require(  // eslint-disable-line global-require
+		require.resolve(s_package, {
+			paths: [
+				pd_dir,
+			],
+		}));
+
 	let h_nodejs_env = {
 		__dirname: pd_dir,
 		__filename: p_file,
 		exports: h_module.exports,
 		module: h_module,
-		require: require,
+		require: f_require,
 	};
 
 	// build script string; fetch file contents
@@ -96,10 +153,16 @@ const evaluate = (s_script, p_file, pd_dir, t_timeout=T_EVAL_TIMEOUT, b_module=f
 	});
 
 	// evaluate code, grab exports
-	let w_eval = y_script.runInNewContext(h_context, {
-		filename: p_file,
-		timeout: t_timeout,
-	});
+	let w_eval;
+	try {
+		w_eval = y_script.runInNewContext(h_context, {
+			filename: p_file,
+			timeout: t_timeout,
+		});
+	}
+	catch(e_run) {
+		log.fail(p_file, 'error in emk file script', e_run.stack);
+	}
 
 	return b_module? h_context.__EMK.module.exports: w_eval;
 };
@@ -238,68 +301,6 @@ class target_fragment_wild_recursive extends target_fragment_wild {
 	// eslint-disable-next-line class-methods-use-this
 	toString() {
 		return '**';
-	}
-}
-
-
-
-const parse_target = (s_target, s_split) => {
-	// split regex
-	let r_split = new RegExp('\\'+s_split, 'g');
-
-	// divide target path into fragments
-	let a_fragments = s_target.split(r_split);
-
-	// no wildcards; return text fragments
-	if(!s_target.includes('*')) {
-		return a_fragments.map(s => ({text:s}));
-	}
-
-	// path components
-	let a_path = [];
-
-	// each fragment
-	for(let s_frag of a_fragments) {
-		// some file
-		if('*' === s_frag) {
-			a_path.push({
-				pattern: new RegExp(`^${F_GLOB_TO_REGEX(s_frag, '*')}$`),
-				wild: true,
-			});
-		}
-		// all targets recursively
-		else if('**' === s_frag) {
-			a_path.push({
-				pattern: new RegExp(`^${F_GLOB_TO_REGEX('*', '*')}$`),
-				wild: true,
-				recurse: true,
-			});
-		}
-		// globstar pattern
-		else if(s_frag.includes('*')) {
-			a_path.push({
-				pattern: new RegExp(`^${F_GLOB_TO_REGEX(s_frag, '+')}$`),
-			});
-		}
-		// exact text
-		else {
-			a_path.push({
-				text: s_frag,
-			});
-		}
-	}
-
-	return a_path;
-};
-
-
-class provenance extends Array {
-	last() {
-		return this[this.length-1].value;
-	}
-
-	toString() {
-		return `{${this.map(g => `[${g.value}]`).join(',')}}`;
 	}
 }
 
@@ -453,11 +454,68 @@ class subtree {
 	}
 }
 
+
+class bash {
+	static contextify(s_str, g_context) {
+		return s_str.replace(/(^|[^\\])\$([@#$%^&*<])/g, (s_base, s_preceed, s_char) => {
+			let s_text = (() => {
+				switch(s_char) {
+					case '@': return `'${g_context.target}'`;
+					case '<': return `'${g_context.deps[0]}'`;
+					case '*': return `'${g_context.deps.join(' ')}'`;
+					default: throw new Error(`special variable '$${s_char}' not supported`);
+				}
+			})();
+
+			return `${s_preceed}${s_text}`;
+		});
+	}
+
+	static prepare(h_variables, a_args=[]) {
+		// bash variables
+		return `set -- ${a_args.map(s => `"${s.replace(/"/g, '\\"')}"`).join(' ')}; `
+			+Object.keys(h_variables).map((s_var) => {
+				let z_value = h_variables[s_var];
+
+				// value is string
+				if('string' === typeof z_value) {
+					return `${s_var}="${z_value.replace(/"/g, '\\"')}"; `;
+				}
+				// value is array
+				else if(Array.isArray(z_value)) {
+					return `${s_var}=(${z_value.map(z => `'${z}'`).join(' ')}); `;
+				}
+				// value is number
+				else if('number' === typeof z_value) {
+					return `${s_var}="${z_value}"; `;
+				}
+				// other
+				else {
+					throw new Error(`cannot create bash variable '${s_var}' from value: ${z_value}`);
+				}
+			}).join('');
+	}
+
+	static spawn_sync(s_cmds, h_variables, a_args) {
+		let s_exec = this.prepare(h_variables, a_args)+s_cmds.trim();
+		return cp.spawnSync('/bin/bash', ['-c', s_exec], {
+			encoding: 'utf8',
+			timeout: 1000,
+		});
+	}
+
+	static spawn(s_cmds, h_variables, a_args) {
+		let s_exec = this.prepare(h_variables, a_args)+s_cmds.trim();
+		return cp.spawn('/bin/bash', ['-c', s_exec], {
+			encoding: 'utf8',
+		});
+	}
+}
+
+
 class executask {
 	constructor(g_this) {
-		Object.assign(this, g_this, {
-			mark: 0,
-		});
+		Object.assign(this, g_this);
 	}
 
 	identical(k_other) {
@@ -467,6 +525,105 @@ class executask {
 		return k_other.run === this.run
 			&& as_deps_other.size === as_deps_this.size
 			&& k_other.deps.every(s => as_deps_this.has(s));
+	}
+
+	async update() {
+		// execute self
+		await this.execute();
+
+		// trigger dependent tasks
+		let as_sups = this.graph.invs[this.id];
+
+		// ref graph
+		let k_graph = this.graph;
+
+		// each super; call update
+		for(let si_task of as_sups) {
+			k_graph.nodes[si_task].update();
+		}
+
+		// root node; add line break
+		if(!as_sups.size) console.log(S_LINE_BREAK);
+	}
+
+	async execute() {
+		let s_label = this.path;
+
+		// run
+		if(this.run) {
+			// bash command
+			let s_bash = bash.contextify(this.run, {
+				target: this.path,
+				deps: this.xdeps,
+			});
+
+			// print
+			log.notice(s_label, `${chalk.dim('args:')} ${JSON.stringify(this.xdeps)}; ${chalk.dim('vars:')} ${JSON.stringify(this.args)} ${chalk.dim('>')}\n`
+				+`${chalk.magenta(gobble(s_bash, '   '))}\n${chalk.dim('<')}`);
+
+			// run process
+			let u_run = bash.spawn(s_bash, this.args, this.xdeps);
+
+			let s_buffer_stdout = '';
+			u_run.stdout.on('data', (s_data) => {
+				// append to buffer
+				s_buffer_stdout += s_data;
+
+				// print each newline
+				let a_lines = s_buffer_stdout.split(/\n/g);
+				for(let s_line of a_lines.slice(0, -1)) {
+					log.quote(s_label, s_line);
+				}
+
+				// set to final un-terminated line
+				s_buffer_stdout = a_lines[a_lines.length-1];
+			});
+
+			let s_buffer_stderr = '';
+			u_run.stderr.on('data', (s_data) => {
+				// append to buffer
+				s_buffer_stderr += s_data;
+
+				// print each newline
+				let a_lines = s_buffer_stderr.split(/\n/g);
+				for(let s_line of a_lines.slice(0, -1)) {
+					log.error(s_label, s_line);
+				}
+
+				// set to final un-terminated line
+				s_buffer_stderr = a_lines[a_lines.length-1];
+			});
+
+			await new Promise((fk_run) => {
+				u_run.on('exit', (n_code) => {
+					// print last of buffers
+					if(s_buffer_stdout) {
+						log.log(s_label, s_buffer_stdout);
+					}
+					if(s_buffer_stderr) {
+						log.error(s_label, s_buffer_stderr);
+					}
+
+					// error
+					if(n_code) {
+						// let user know in case they are watching files
+						process.stdout.write('\x07');
+						log.fail(s_label, `command(s) resulted in non-zero exit code '${n_code}'`);
+					}
+					// success
+					else {
+						log.good(s_label, `${S_STATUS_PASS} done`); // ✔
+					}
+
+					// resolve
+					fk_run();
+				});
+			});
+		}
+		// completed task group
+		else {
+			log.good(s_label, `👍`);
+		}
 	}
 }
 
@@ -514,7 +671,8 @@ class task_creator {
 		} = this.create(h_args);
 
 		return new executask({
-			id: `*task\0${a_deps.join('|')}\0${s_run}`,
+			id: `${s_path}\0${a_deps.join('|')}\0${s_run}`,
+			args: h_args,
 			path: s_path,
 			deps: a_deps,
 			run: s_run,
@@ -530,33 +688,33 @@ class output_creator {
 		});
 	}
 
-	match(s_target) {
-		let {
-			map: h_map,
-			patterns: h_patterns,
-		} = this;
-debugger;
-		// list of matches
-		let a_matches = [];
+// 	match(s_target) {
+// 		let {
+// 			map: h_map,
+// 			patterns: h_patterns,
+// 		} = this;
+// debugger;
+// 		// list of matches
+// 		let a_matches = [];
 
-		// each pattern in map
-		for(let s_pattern in h_map) {
-			// already parsed
-			if(s_pattern in h_patterns) {
-				let g_pattern = h_patterns[s_pattern];
+// 		// each pattern in map
+// 		for(let s_pattern in h_map) {
+// 			// already parsed
+// 			if(s_pattern in h_patterns) {
+// 				let g_pattern = h_patterns[s_pattern];
 
-				// does not match against target; continue onto next
-				if(!g_pattern.test(s_target)) continue;
+// 				// does not match against target; continue onto next
+// 				if(!g_pattern.test(s_target)) continue;
 
-				// store match
-				a_matches.push(g_pattern);
-			}
-			// not yet parsed; save parsed pattern
-			else {
-				h_patterns[s_pattern] = component.parse(s_pattern);
-			}
-		}
-	}
+// 				// store match
+// 				a_matches.push(g_pattern);
+// 			}
+// 			// not yet parsed; save parsed pattern
+// 			else {
+// 				h_patterns[s_pattern] = component.parse(s_pattern);
+// 			}
+// 		}
+// 	}
 
 	prepare(a_path, h_args) {
 		let {
@@ -585,8 +743,9 @@ debugger;
 			`;
 		}
 
-		return new executask({
+		return new execuout({
 			id: a_path.join('/'),
+			args: h_args,
 			path: a_path.join('/'),
 			deps: a_deps,
 			run: s_run,
@@ -594,9 +753,108 @@ debugger;
 	}
 }
 
-class dep_graph_node {
-	constructor() {
+class diagram {
+	constructor(h_edges) {
+		Object.assign(this, {
+			edges: h_edges,
+			refs: {},
+			round: 0,
+			short: 0,
+		});
+	}
 
+	draw(h_tree) {
+		this.short = 'a'.charCodeAt(0);
+		let s_diagram = this.draw_subtree(h_tree)+`${S_ESC_CLEAR_EOL}\n`;
+		this.round += 1;
+		return s_diagram;
+	}
+
+	draw_subtree(h_tree, n_indent=1) {
+		let {
+			edges: h_edges,
+			refs: h_refs,
+			round: i_round,
+		} = this;
+
+		let s_diagram = '';
+		let s_pre = '  '.repeat(n_indent-1)+' ';
+
+		// sort keys
+		let a_keys = Object.keys(h_tree).sort();
+
+		// traverse tree in sorted key order
+		for(let s_key of a_keys) {
+			let z_value = h_tree[s_key];
+
+			// leaf node
+			if('string' === typeof z_value) {
+				let s_refs = '';
+				let as_deps = h_edges[z_value];
+				if(as_deps.size) {
+					s_refs = '['+[...as_deps].map(s => h_refs[s]).sort().join(', ')+']';
+				}
+
+				// make and save ref
+				let s_short = i_round+String.fromCharCode(this.short++);
+				h_refs[z_value] = s_short;
+
+				// format label
+				let s_label = z_value;
+
+				// task
+				if(s_label.includes('\0')) {
+					let [s_task, s_deps] = s_label.split('\0');
+					let a_deps = s_deps.split('|');
+
+					s_label = `"${s_task}" {${a_deps.join(', ')}}`;
+				}
+				// file
+				else {
+					let a_path = s_label.split('/');
+					s_label = a_path[a_path.length-1];
+				}
+
+				s_diagram += chalk.dim(`${s_pre}- ${s_short}:`)
+					+` ${chalk.white(s_label)}`
+					+` ${s_refs? chalk.yellowBright(s_refs)+' ': ''}${S_ESC_CLEAR_EOL}\n`;
+			}
+			else {
+				s_diagram += chalk.dim(`${s_pre}+`)
+					+` ${chalk.blueBright(s_key)} ${S_ESC_CLEAR_EOL}\n`
+					+this.draw_subtree(z_value, n_indent+1);
+			}
+		}
+
+		return s_diagram;
+	}
+}
+
+class execuout extends executask {
+	async execute() {
+		let p_file = this.path;
+
+		// output file
+		if(this instanceof execuout) {
+			let pd_dir = path.dirname(p_file);
+
+			// assure directory exists and write access OK
+			try {
+				await fs_access(pd_dir, fs.constants.F_OK);
+			}
+			// directory does not exist; try to create it
+			catch(e_access) {
+				try {
+					await mkdirp(pd_dir);
+				}
+				catch(e_mkdirp) {
+					log.fail(pd_dir, 'failed to mkdir recursively');
+				}
+			}
+		}
+
+		// bash run
+		await super.execute();
 	}
 }
 
@@ -610,7 +868,36 @@ class execusrc extends executask {
 			file: s_file,
 			cwd: p_cwd,
 			stats: dk_stats,
+			graph: null,
 		});
+	}
+
+	async execute(g_config={}) {
+		let s_label = this.file;
+		let dk_stats = await fs_stat(this.file);
+
+		log.good(s_label, `${S_STATUS_PASS} modified ${time_ago(dk_stats.mtimeMs)} ago`);
+
+		// watch file
+		if(g_config.watch) {
+			watch(s_label, (s_event, s_file) => {  // eslint-disable-line no-unused-vars
+				if('update' === s_event) {
+					// print
+					log.info(s_label, 'file was modified');
+
+					// call update
+					this.update(Date.now());
+				}
+				else if('remove' === s_event) {
+					log.fail(s_label, '🔥 dependency file was deleted');
+				}
+				else {
+					debugger;
+				}
+			});
+		}
+
+		return;
 	}
 }
 
@@ -653,7 +940,7 @@ class emkfile {
 
 				// task id contains slashes
 				if(si_task.includes('/')) {
-					log.warn(p_emkfile, `one of your task names contains a slash \`/\` character: '${si_task}'.\n\tthis may cause an unwanted collision with an output target`);
+					log.warn(si_task, `task name contains a slash \`/\` character.\n\tthis may cause an unwanted collision with an output target`);
 				}
 
 				// normalize leaf
@@ -672,6 +959,16 @@ class emkfile {
 				return new output_creator(a_prov, z_leaf);
 			}),
 		});
+	}
+
+	// info
+	info(s_text) {
+		log.info(path.relative(this.args.cwd || process.cwd(), this.source), s_text);
+	}
+
+	// info
+	notice(s_text) {
+		log.notice(path.relative(this.args.cwd || process.cwd(), this.source), s_text);
 	}
 
 	// warn
@@ -845,9 +1142,11 @@ class emkfile {
 				// add to nodes
 				k_graph.nodes[si_task] = k_executask;
 
-				let as_dep_ids = new Set();
+				// save graph ref
+				k_executask.graph = k_graph;
 
-				// plot deps
+				// plot (expand) deps and add to set
+				let as_dep_ids = new Set();
 				for(let s_dep_call of k_executask.deps) {
 					as_dep_ids = new Set([
 						...as_dep_ids,
@@ -857,6 +1156,9 @@ class emkfile {
 						}, k_graph, k_executask.path),
 					]);
 				}
+
+				// update executask
+				k_executask.xdeps = [...as_dep_ids];
 
 				// save to graph
 				k_graph.outs[si_task] = as_dep_ids;
@@ -881,7 +1183,7 @@ class emkfile {
 			}
 		}
 
-		return Array.from(as_ids);
+		return as_ids;
 	}
 
 	plot(g_call, k_graph, s_path) {
@@ -973,7 +1275,7 @@ class emkfile {
 			}
 
 			// sources
-			let a_srcs = [];
+			let as_srcs = new Set();
 
 			// each file
 			for(let s_file of a_files) {
@@ -981,16 +1283,24 @@ class emkfile {
 				let dk_stats = fs.statSync(path.join(this.args.cwd, s_file));
 
 				// add file dependency
-				a_srcs.push(this.add([
-					new execusrc(s_file, this.args.cwd, dk_stats, s_target),
-				], h_args, k_graph));
+				as_srcs = new Set([
+					...as_srcs,
+					...this.add([
+						new execusrc(s_file, this.args.cwd, dk_stats, s_target),
+					], h_args, k_graph)]);
 			}
 
-			return a_srcs;
+			return as_srcs;
 		}
 	}
 
-	run(a_calls) {
+	async run(a_calls, g_config) {
+		// no calls
+		if(!a_calls.length) {
+			this.warn('no task specific. using default "all"');
+			a_calls.push({call:'all'});
+		}
+
 		let k_graph = new graph();
 
 		let as_invocations = new Set();
@@ -1006,21 +1316,125 @@ class emkfile {
 			cycle: si_node => log.fail(si_node, 'detected dependency graph cycle at this node'),
 		});
 
-		// print
-		let c_stages = 0;
+		// build a dependency graph diagram
+		let s_stages = '';
+		let i_stage = 0;
+
+		let k_diagram = new diagram(k_graph.outs);
+
 		for(let a_tasks of a_rounds) {
-			log.info(`stage ${c_stages++}:`, a_tasks.map(si_task => `[${k_graph.nodes[si_task].id}]`).join('\t'));
+			let h_tree_files = {};
+			let h_tree_tasks = {};
+			for(let si_task of a_tasks) {
+				// task
+				if(si_task.includes('\0')) {
+					let [s_task] = si_task.split('\0');
+
+					let h_node = h_tree_tasks;
+					let a_frags = s_task.split('.');
+					let i_frag = 0;
+					for(let nl_frags=a_frags.length-1; i_frag<nl_frags; i_frag++) {
+						let s_dir = a_frags[i_frag]+'.';
+						h_node = h_node[s_dir] = h_node[s_dir] || {};
+					}
+
+					h_node[a_frags[i_frag]] = si_task;
+				}
+				// file
+				else {
+					let h_node = h_tree_files;
+					let a_dirs = si_task.split('/');
+					let i_frag = 0;
+					for(let nl_frags=a_dirs.length-1; i_frag<nl_frags; i_frag++) {
+						let s_dir = a_dirs[i_frag]+'/';
+						h_node = h_node[s_dir] = h_node[s_dir] || {};
+					}
+
+					h_node[a_dirs[i_frag]] = si_task;
+				}
+			}
+
+			s_stages += `\n${chalk.magenta(`[stage ${i_stage++}]:`)}${S_ESC_CLEAR_EOL}\n`;
+			if(Object.keys(h_tree_files).length) {
+				s_stages += k_diagram.draw(h_tree_files);
+			}
+			if(Object.keys(h_tree_tasks).length) {
+				s_stages += k_diagram.draw(h_tree_tasks);
+			}
 		}
 
-		debugger;
-	}
+		// print diagram
+		this.info('dependency graph: '+chalk.bgBlackBright(s_stages));
 
+		// execute rounds
+		for(let a_tasks of a_rounds) {
+			// done
+			if(!a_tasks) return;
+
+			// ref nodes
+			let h_nodes = k_graph.nodes;
+
+			// each task (in sorted order)
+			let a_awaits = [];
+			for(let si_task of a_tasks.sort()) {
+				a_awaits.push(h_nodes[si_task].execute(g_config));
+			}
+
+			// run all async
+			await Promise.all(a_awaits);
+		}
+
+		console.log(S_LINE_BREAK);
+
+		// watch
+		if(g_config.watch) {
+			// watch this file
+			let dy_watcher = watch(this.source, (s_event, s_file) => {  // eslint-disable-line no-unused-vars
+				// stop watching this file
+				dy_watcher.close();
+
+				// file was modified
+				if('update' === s_event) {
+					// shutdown this emkfile
+					console.log(S_LINE_BREAK);
+
+					// print
+					this.warn(`💫  reloading emk file...`);
+
+					// close execusrc watchers
+					for(let [, k_executask] of Object.entries(k_graph.nodes)) {
+						if(k_executask instanceof execusrc && k_executask.watcher) {
+							k_executask.watcher.close();
+						}
+					}
+
+					// done
+					console.log(S_LINE_BREAK);
+
+					// load new emkfile
+					load(this.source, this.args);
+				}
+				// file was deleted
+				else if('remove' === s_event) {
+					this.error('🔥 emk file was deleted! continuing to watch dependency files...');
+				}
+			});
+
+			this.notice(`👀  watching files...`);
+		}
+	}
 }
 
 
 async function load(p_emkfile, g_args={}) {
 	// read emkfile contents
-	let s_emkfile = fs.readFileSync(p_emkfile, 'utf8');
+	let s_emkfile;
+	try {
+		s_emkfile = fs.readFileSync(p_emkfile, 'utf8');
+	}
+	catch(e_read) {
+		log.fail(p_emkfile, 'no such file');
+	}
 
 	// grab exports from emkfile
 	let g_emkfile = evaluate(s_emkfile, p_emkfile, g_args.cwd, g_args.timeout, true);
@@ -1029,7 +1443,9 @@ async function load(p_emkfile, g_args={}) {
 	let k_emkfile = new emkfile(g_emkfile, g_args, p_emkfile);
 
 	// run calls
-	await k_emkfile.run(g_args.calls);
+	await k_emkfile.run(g_args.calls, {
+		watch: g_args.watch,
+	});
 }
 
 

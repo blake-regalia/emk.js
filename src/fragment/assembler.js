@@ -1,3 +1,10 @@
+const braces = require('braces');
+
+const F_TEXT_TO_REGEX = s => s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+const F_GLOB_TO_REGEX = (s, s_wildcard_quantifier='+') => s
+	.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&')
+	.replace(/[*]/g, `([^/]${s_wildcard_quantifier})`);
+
 
 class pattern_fragment {
 	static from_struct(k_emk, g_fragment) {
@@ -15,78 +22,38 @@ class pattern_fragment {
 		});
 	}
 
-	textual() {
-		let g_eval = this.eval;
+	// textual() {
+	// 	let g_eval = this.eval;
 
-		return !!(g_eval.text || g_eval.list);
-	}
+	// 	return !!(g_eval.text || g_eval.list);
+	// }
 
-	test(s_target) {
-		let g_eval = this.eval;
+	// test(s_target) {
+	// 	let g_eval = this.eval;
 
-		// text
-		if(g_eval.text) return s_target === g_eval.text;
+	// 	// text
+	// 	if(g_eval.text) return s_target === g_eval.text;
 
-		// list
-		if(g_eval.list) return g_eval.list.some(s => s === g_eval.text);
+	// 	// list
+	// 	if(g_eval.list) return g_eval.list.some(s => s === g_eval.text);
 
-		// pattern
-		return g_eval.pattern.test(s_target);
-	}
+	// 	// pattern
+	// 	return g_eval.pattern.test(s_target);
+	// }
 
-	match(r_pattern) {
-		let g_eval = this.eval;
+	// match(r_pattern) {
+	// 	let g_eval = this.eval;
 
-		// text
-		if(g_eval.text) return r_pattern.test(g_eval.text)? [g_eval.text]: [];
+	// 	// text
+	// 	if(g_eval.text) return r_pattern.test(g_eval.text)? [g_eval.text]: [];
 
-		// list
-		if(g_eval.list) return g_eval.list.filter(s => r_pattern.test(s));
+	// 	// list
+	// 	if(g_eval.list) return g_eval.list.filter(s => r_pattern.test(s));
 
-		// pattern
-		throw new Error(`encountered pattern on pattern match`);
-	}
+	// 	// pattern
+	// 	throw new Error(`encountered pattern on pattern match`);
+	// }
 
-	exec(s_target) {
-		let g_eval = this.eval;
-
-		// text
-		if(g_eval.text) return s_target === g_eval.text;
-
-		// list
-		if(g_eval.list) return 
-
-		// capture groups
-		let a_groups = [];
-
-		// add groups
-		for(let i_add=0, s_var=g_eval.binding; i_add<g_eval.length; i_add++) {
-			a_groups.push(s_var);
-		}
-
-		// compile
-		let r_pattern = new RegExp('^('+g_eval.regex+')$');
-
-		// exec regex
-		let m_match = r_pattern.exec(s_target);
-
-		// no match
-		if(!m_match) return m_match;
-
-		// prep matches
-		let h_matches = {};
-
-		// align groups
-		for(let i_group=0, nl_match=m_match.length; i_group<nl_match-2; i_group++) {
-			let s_var = a_groups[i_group];
-
-			if(!(s_var in h_matches)) h_matches[s_var] = [m_match[i_group+2]];
-			else h_matches[s_var].push(m_match[i_group+2]);
-		}
-
-		// return named match groups
-		return h_matches;
-	}
 }
 
 
@@ -98,6 +65,10 @@ class pattern_fragment_text extends pattern_fragment {
 			// regex: s_text.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&'),
 			group_count: 0,
 		});
+	}
+
+	to_regex() {
+		return F_TEXT_TO_REGEX(this.text);
 	}
 
 	test_text(s_test) {
@@ -131,6 +102,10 @@ class pattern_fragment_enum extends pattern_fragment {
 		});
 	}
 
+	to_regex() {
+		return `(${this.enum.map(s => F_TEXT_TO_REGEX(s)).join('|')})`;
+	}
+
 	test_text(s_test) {
 		return this.enum.some(s => s_test === s);
 	}
@@ -148,7 +123,7 @@ class pattern_fragment_enum extends pattern_fragment {
 }
 
 class pattern_fragment_regex extends pattern_fragment {
-	static from_regex_str(k_emk, s_regex, s_name, n_groups=null) {
+	static from_regex_str(k_emk, s_regex, s_name='_', n_groups=null) {
 		return new pattern_fragment_regex({
 			emk: k_emk,
 			regex: new RegExp(`^(${s_regex})$`),
@@ -174,6 +149,10 @@ class pattern_fragment_regex extends pattern_fragment {
 			group_count: null === n_groups? (new RegExp(s_regex+'|')).exec('').length: n_groups,
 			binding: s_name || '_',
 		});
+	}
+
+	to_regex() {
+		return this.regex;
 	}
 
 	test_text(s_test) {
@@ -209,17 +188,70 @@ class pattern_fragment_regex extends pattern_fragment {
 	}
 }
 
+const permutate = (a_frags, s_current='', a_combos=[]) => {
+	if(!a_frags.length) a_combos.push(s_current);
+
+	let k_frag = a_frags[0];
+	let a_subfrags = a_frags.slice(1);
+
+	if(k_frag instanceof pattern_fragment_text) {
+		permutate(a_subfrags, s_current+k_frag.text, a_combos);
+	}
+	else if(k_frag instanceof pattern_fragment_enum) {
+		for(let s_text of k_frag.enum) {
+			permutate(a_subfrags, s_current+s_text, a_combos);
+		}
+	}
+};
 
 let h_eval = {
 	text: (k_emk, g) => pattern_fragment_text.from_text(k_emk, g.value),
 
 	glob: (k_emk, g) => {
+		let s_regex = braces(`/${g.value}/`);
+
+		// globbing
+		if(s_regex.includes('*')) {
+			return pattern_fragment_regex.from_regex_str(k_emk, s_regex.slice(1, -1), g.name);
+		}
+		// no globbing! use expansion
+		else {
+			return pattern_fragment_enum.from_list(k_emk, braces.expand(`/${g.value}/`));
+		}
+
 		// convert glob string to regular expression
 		// g.value.replace(/\{([^,}]*)(,?)\}/g, '($1');
 		// g.value.replace(/\{/g, '(');
+	},
 
-		debugger;
-		throw new Error(`err: globs not yet implemented`);
+	pattern: (k_emk, g_pattern) => {
+		// merge adjacent text
+		let g_prev = null;
+		let a_values = [];
+		for(let g_sub of g_pattern.value) {
+			if(g_prev && 'text' === g_prev.type && 'text' === g_sub.type) {
+				g_prev.value += g_sub.value;
+			}
+			else {
+				g_prev = g_sub;
+				a_values.push(g_sub);
+			}
+		}
+
+		// map to fragments
+		let a_frags = a_values.map(g => pattern_fragment.from_struct(k_emk, g));
+
+		// single item
+		if(1 === a_frags.length) return a_frags[0];
+
+		// no patterns; make all permutations
+		if(a_frags.every(k => !(k instanceof pattern_fragment_regex))) {
+			return pattern_fragment_enum.from_list(k_emk, permutate(a_frags));
+		}
+		// make pattern
+		else {
+			return pattern_fragment_regex.from_regex_str(k_emk, a_frags.map(k => k.to_regex()).join(''));
+		}
 	},
 
 	regex: (k_emk, g) => pattern_fragment_regex.from_regex_str(k_emk, g.value),

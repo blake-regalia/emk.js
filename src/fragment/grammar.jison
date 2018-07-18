@@ -21,15 +21,29 @@ Fragment
 	;
 
 fragment
-	: text -> type('text', $text)
-	| LABEL -> type('label', $LABEL.slice(1))
-	| '(' glob ')' -> type('capture_glob', $glob)
-	| '[' regex ']' -> type('capture_regex', $regex)
+	: pattern -> type('pattern', $pattern)
+	| '[' glob ']' -> type('capture_glob', $glob)
+	| '(' regex ')' -> type('capture_regex', $regex)
+	;
+
+pattern
+	: TEXT pattern -> [type('text', $TEXT), ...$pattern]
+	| LABEL pattern_text -> [type('label', $LABEL.slice(1)), ...$pattern_text]
+	| -> []
+	;
+
+pattern_label
+	: LABEL pattern_text -> [type('label', $LABEL.slice(1)), ...$pattern_text]
+	| -> []
+	;
+
+pattern_text
+	: TEXT pattern -> [type('text', $TEXT), ...$pattern]
+	| -> []
 	;
 
 text
-	: TEXT text -> $TEXT+$text+''
-	| -> ''
+	: TEXT* -> $1.join('')
 	;
 
 glob
@@ -44,7 +58,7 @@ glob_assign
 
 glob_target
 	: REFERENCE -> type('reference', $REFERENCE)
-	| GLOB -> type('glob', $GLOB)
+	| text -> type('glob', $text)
 	;
 
 regex
@@ -60,10 +74,4 @@ regex_assign
 regex_target
 	: REFERENCE -> type('reference', $REFERENCE)
 	| REGEX -> type('regex', $REGEX)
-	;
-
-pattern
-	: GLOB -> type('glob', $GLOB)
-	| REGEX -> type('regex', $REGEX)
-	| PATTERN_REF -> type('pattern_ref', $PATTERN_REF.slice(1))
 	;

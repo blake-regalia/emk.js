@@ -16,7 +16,7 @@ reference 		[^&][^\)]*
 single_quoted_string 	['](?:[^'\\]|\\.)*[']
 double_quoted_string 	["](?:[^"\\]|\\.)*["]
 
-%x glob glob_nest regex regex_nest
+%x glob glob_target glob_nest regex regex_target regex_nest
 
 %options flex
 
@@ -31,18 +31,18 @@ double_quoted_string 	["](?:[^"\\]|\\.)*["]
 <INITIAL>{label}				return 'LABEL';
 
 <glob,regex>{name}			return 'NAME';
-<glob,regex>"=" 				return '=';
-<glob,regex>{reference}		return 'REFERENCE';
+<glob>"=" 						this.popState(); this.pushState("glob_target"); return '=';
+<regex>"=" 						this.popState(); this.pushState("regex_target"); return '=';
+<glob_target,regex_target>{reference}		return 'REFERENCE';
 
-<glob>"["						this.pushState("glob_nest"); return 'TEXT';
+<glob_target>"["						this.pushState("glob_nest"); return 'TEXT';
 <glob_nest>"]"					this.popState(); return 'TEXT';
-<glob>{glob}					return 'GLOB';
-<glob>"]"						this.popState(); return ']';
+<glob,glob_target>"]"						this.popState(); return ']';
 
-<regex>"("						this.pushState("regex_nest"); return 'TEXT';
+<regex_target>"("						this.pushState("regex_nest"); return 'TEXT';
 <regex_nest>")"				this.popState(); return 'TEXT';
-<regex>{regex} 				return 'REGEX';
-<regex>")"						this.popState(); return ')';
+<regex_target>{regex} 				return 'REGEX';
+<regex,regex_target>")"						this.popState(); return ')';
 
-.									return 'TEXT';
+<INITIAL,glob,glob_target,glob_nest,regex,regex_target,regex_nest>.	return 'TEXT';
 <<EOF>> 							return 'EOF';

@@ -32,7 +32,7 @@ module.exports = class graph {
 		let h_invs = this.invs = this.invs || graph.invert(h_outs);
 
 		// check for DAG
-		this.check_dag(fe_cyclic);
+		this.sort(this.outs, fe_cyclic);
 
 		// transitive reduction
 		this.reduce(h_outs);
@@ -53,25 +53,6 @@ module.exports = class graph {
 		for(let [si_node, i_rank] of Object.entries(h_ranks)) {
 			(a_ranks[i_rank] = a_ranks[i_rank] || []).push(si_node);
 		}
-
-		debugger;
-
-		// let a_levels = [];
-		// let i_level = 0;
-
-		// let si_prev;
-		// for(let i_node=0, nl_nodes=a_sorted.length; i_node<nl_nodes; i_node++) {
-		// 	let si_node = a_sorted[i_node];
-
-		// 	// while previous node is not parent
-		// 	while(!h_outs[si_prev].has(si_node)) {
-		// 		// move up to its parent
-		// 		si_prev = h_invs[si_prev];
-		// 	}
-
-		// 	a_levels[i_level] = si_node;
-
-		// }
 
 		return a_ranks;
 	}
@@ -116,23 +97,23 @@ module.exports = class graph {
 		h_done[si_node] = 1;
 	}
 
-	check_dag(fe_cyclic) {
-		let {
-			outs: h_outs,
-			invs: h_invs,
-		} = this;
+	// check_dag(fe_cyclic) {
+	// 	let {
+	// 		outs: h_outs,
+	// 		invs: h_invs,
+	// 	} = this;
 
-		// prep marks hash
-		let h_marks = {};
-		for(let s_key in h_outs) h_marks[s_key] = 0;
+	// 	// prep marks hash
+	// 	let h_marks = {};
+	// 	for(let s_key in h_outs) h_marks[s_key] = 0;
 
-		// each root node
-		for(let si_node in h_outs) {
-			if(!h_invs[si_node].size) {
-				this.visit(h_outs, si_node, h_marks, fe_cyclic);
-			}
-		}
-	}
+	// 	// each root node
+	// 	for(let si_node in h_outs) {
+	// 		if(!h_invs[si_node].size) {
+	// 			this.visit(h_outs, si_node, h_marks, fe_cyclic);
+	// 		}
+	// 	}
+	// }
 
 	sort(h_edges, fe_cyclic) {
 		let a_sorted = [];
@@ -141,19 +122,12 @@ module.exports = class graph {
 		let h_marks = {};
 		for(let s_key in h_edges) h_marks[s_key] = 0;
 
-		// while unmarked nodes
-		for(;;) {
-			let b_unmarked = true;
-
-			// each unmarked node
-			for(let si_node in h_edges) {
-				if(!h_marks[si_node]) {
-					// visit
-					this.visit(h_edges, si_node, h_marks, fe_cyclic, a_sorted);
-					b_unmarked = false;
-				}
+		// each unmarked node
+		for(let si_node in h_edges) {
+			if(!h_marks[si_node]) {
+				// visit
+				this.visit(h_edges, si_node, h_marks, fe_cyclic, a_sorted);
 			}
-			if(b_unmarked) break;
 		}
 
 		return a_sorted;

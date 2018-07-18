@@ -1,16 +1,16 @@
 {
   "name": "emk",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "ECMAScript Make - a build tool for the JavaScript elite",
-  "main": "build/main.js",
+  "main": "build/main/v2.js",
   "directories": {
     "build": "./build"
   },
   "scripts": {
-    "build": "mkdir -p build/fragment && cp src/fragment/*.js build/fragment && jison ./src/fragment/grammar.jison ./src/fragment/lex.jisonlex -o build/fragment/parser.js && cp src/main/* build/"
+    "build": "mkdir -p build/fragment && cp src/fragment/*.js build/fragment && jison ./src/fragment/grammar.jison ./src/fragment/lex.jisonlex -o build/fragment/parser.js && mkdir -p build/main && cp src/main/* build/main"
   },
   "bin": {
-    "emk": "build/main.js"
+    "emk": "build/main/v2.js"
   },
   "repository": "blake-regalia/emk.js",
   "keywords": [
@@ -22,7 +22,10 @@
   "license": "ISC",
   "dependencies": {
     "bash-glob": "^2.0.0",
+    "braces": "^2.3.2",
     "chalk": "^2.4.1",
+    "mkdirp-promise": "^5.0.1",
+    "node-watch": "^0.5.8",
     "yargs": "^12.0.1"
   }
 }
