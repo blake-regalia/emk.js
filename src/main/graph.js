@@ -25,7 +25,7 @@ module.exports = class graph {
 		});
 	}
 
-	schedule(fe_cyclic) {
+	schedule({cycle:fe_cyclic}) {
 		let h_outs = this.outs;
 
 		// make inverted graph direction

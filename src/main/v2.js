@@ -29,27 +29,42 @@ const {
 
 const pattern_fragment_from_string = (s_key, k_emkfile) => fragment_parser.parse(s_key).bind(k_emkfile);
 
+
+const F_TEXT_TO_REGEX = s => s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+const F_GLOB_TO_REGEX = (s, s_wildcard_quantifier='+') => s
+	.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&')
+	.replace(/[*]/g, `([^/]${s_wildcard_quantifier})`);
+
+const T_EVAL_TIMEOUT = 5000;  // allow up to 5 seconds for script to load
+
+const S_ESC_CLEAR_EOL = '\u001B[K';
+const S_STATUS_PASS = chalk.keyword('orange')('⚡');
+const S_QUOTE_CMD = chalk.dim('> ');
+const S_QUOTE_IN = chalk.dim('< ');
+const S_LINE_BREAK = '------------------------------------------------------';
+
+
 const log = {
 	log(s_tag, s_text) {
-		console.log(`|${chalk.white(`[${s_tag}]`)} ${s_text}`);
+		console.log(`${chalk.white(`[${s_tag}]`)} ${s_text}`);
 	},
 	good(s_tag, s_text) {
-		console.log(`|${chalk.green(`[${s_tag}]`)} ${s_text}`);
+		console.log(`${chalk.green(`[${s_tag}]`)} ${s_text}`);
 	},
 	notice(s_tag, s_text) {
-		console.log(`|${chalk.blue(`[${s_tag}]`)} ${s_text}`);
+		console.log(`${chalk.blue(`[${s_tag}]`)} ${s_text}`);
 	},
 	info(s_tag, s_text) {
-		console.log(`|${chalk.cyan(`[${s_tag}]`)} ${s_text}`);
+		console.log(`${chalk.cyan(`[${s_tag}]`)} ${s_text}`);
 	},
 	quote(s_tag, s_text) {
-		console.log(`|${chalk.magenta(`[${s_tag}]`)} ${s_text}`);
+		console.log(`${chalk.magenta(`[${s_tag}]`)} ${s_text}`);
 	},
 	warn(s_tag, s_text) {
-		console.warn(`~${chalk.yellow(`[${s_tag}]`)} ${s_text}`);
+		console.warn(`${chalk.yellow(`[${s_tag}]`)} ${s_text}`);
 	},
 	error(s_tag, s_text) {
-		console.error(`*${chalk.red(`[${s_tag}]`)} ${s_text}`);
+		console.error(`${chalk.red(`[${s_tag}]`)} ${s_text}`);
 	},
 	fail(s_tag, s_text, s_quote='', xc_exit=1) {
 		console.error(`-${chalk.redBright.bgBlackBright(` ${s_tag} `)} > ${chalk.red(s_text)}`
@@ -61,7 +76,7 @@ const log = {
 };
 
 
-const gobble = (s_text, s_space) => {
+const gobble = (s_text, s_space='\t') => {
 	let m_pad = /^(\s+)/.exec(s_text.replace(/^\n+/, ''));
 	if(m_pad) {
 		return s_space+s_text.replace(new RegExp(`\\n${m_pad[1]}`, 'g'), '\n'+s_space).trim();
@@ -70,6 +85,8 @@ const gobble = (s_text, s_space) => {
 		return s_space+s_text.trim();
 	}
 };
+
+const pad = (s_in, s_quote=S_QUOTE_CMD) => s_in.split(/\n/g).map(s => ` ${s_quote}   `+s).join('\n');
 
 const T_SECONDS = 1000;
 const T_MINUTES = 60 * T_SECONDS;
@@ -99,17 +116,6 @@ const time_ago = (t_when) => {
 		return Math.round(t_diff / T_WEEKS)+'w';
 	}
 };
-
-const F_TEXT_TO_REGEX = s => s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
-const F_GLOB_TO_REGEX = (s, s_wildcard_quantifier='+') => s
-	.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&')
-	.replace(/[*]/g, `([^/]${s_wildcard_quantifier})`);
-
-const T_EVAL_TIMEOUT = 5000;  // allow up to 5 seconds for script to load
-
-const S_ESC_CLEAR_EOL = '\u001B[K';
-const S_STATUS_PASS = chalk.keyword('orange')('⚡');
-const S_LINE_BREAK = '------------------------------------------------------';
 
 
 const evaluate = (s_script, p_file, pd_dir, t_timeout=T_EVAL_TIMEOUT, b_module=false) => {
@@ -415,7 +421,7 @@ class subtree {
 			// regex pattern
 			else if(k_frag instanceof pattern_fragment_regex) {
 				// issue warning
-				log.warn(this.emkfile, `cannot use wildcard target '*' against path pattern at '${this.prov.join(this.split)}'`);
+				log.warn(this.prov.join(this.split)+this.split+s_key, `cannot use wildcard target '*' against this path pattern`);
 			}
 		}
 	}
@@ -558,8 +564,8 @@ class executask {
 			});
 
 			// print
-			log.notice(s_label, `${chalk.dim('args:')} ${JSON.stringify(this.xdeps)}; ${chalk.dim('vars:')} ${JSON.stringify(this.args)} ${chalk.dim('>')}\n`
-				+`${chalk.magenta(gobble(s_bash, '   '))}\n${chalk.dim('<')}`);
+			log.notice(s_label, `${chalk.dim('args:')} ${JSON.stringify(this.xdeps)}; ${chalk.dim('vars:')} ${JSON.stringify(this.args)}\n`
+				+`${pad(chalk.keyword('steelblue')(gobble(s_bash, '')+'\n'), S_QUOTE_IN)}`);
 
 			// run process
 			let u_run = bash.spawn(s_bash, this.args, this.xdeps);
@@ -569,14 +575,14 @@ class executask {
 				// append to buffer
 				s_buffer_stdout += s_data;
 
-				// print each newline
-				let a_lines = s_buffer_stdout.split(/\n/g);
-				for(let s_line of a_lines.slice(0, -1)) {
-					log.quote(s_label, s_line);
-				}
+				// // print each newline
+				// let a_lines = s_buffer_stdout.split(/\n/g);
+				// for(let s_line of a_lines.slice(0, -1)) {
+				// 	log.quote(s_label, s_line);
+				// }
 
-				// set to final un-terminated line
-				s_buffer_stdout = a_lines[a_lines.length-1];
+				// // set to final un-terminated line
+				// s_buffer_stdout = a_lines[a_lines.length-1];
 			});
 
 			let s_buffer_stderr = '';
@@ -584,24 +590,24 @@ class executask {
 				// append to buffer
 				s_buffer_stderr += s_data;
 
-				// print each newline
-				let a_lines = s_buffer_stderr.split(/\n/g);
-				for(let s_line of a_lines.slice(0, -1)) {
-					log.error(s_label, s_line);
-				}
+				// // print each newline
+				// let a_lines = s_buffer_stderr.split(/\n/g);
+				// for(let s_line of a_lines.slice(0, -1)) {
+				// 	log.error(s_label, S_QUOTE_CMD+s_line);
+				// }
 
-				// set to final un-terminated line
-				s_buffer_stderr = a_lines[a_lines.length-1];
+				// // set to final un-terminated line
+				// s_buffer_stderr = a_lines[a_lines.length-1];
 			});
 
 			await new Promise((fk_run) => {
 				u_run.on('exit', (n_code) => {
 					// print last of buffers
 					if(s_buffer_stdout) {
-						log.log(s_label, s_buffer_stdout);
+						log.quote(s_label, S_QUOTE_CMD+'\n'+pad(s_buffer_stdout));
 					}
 					if(s_buffer_stderr) {
-						log.error(s_label, s_buffer_stderr);
+						log.error(s_label, S_QUOTE_CMD+'\n'+pad(s_buffer_stderr));
 					}
 
 					// error
@@ -719,7 +725,7 @@ class output_creator {
 	prepare(a_path, h_args) {
 		let {
 			deps: a_deps=[],
-			run: s_run=null,
+			run: s_run='',
 			copy: s_src=null,
 		} = this.create(h_args);
 
@@ -740,6 +746,7 @@ class output_creator {
 			s_run = /* syntax: bash */ `
 				# copy from src to dest
 				cp $1 $@
+				${s_run}
 			`;
 		}
 
@@ -831,13 +838,14 @@ class diagram {
 }
 
 class execuout extends executask {
-	async execute() {
+	async execute({force:b_force=false}) {
 		let p_file = this.path;
 
 		// output file
-		if(this instanceof execuout) {
-			let pd_dir = path.dirname(p_file);
+		let pd_dir = path.dirname(p_file);
 
+
+		CHECK_MTIME: {
 			// assure directory exists and write access OK
 			try {
 				await fs_access(pd_dir, fs.constants.F_OK);
@@ -846,15 +854,40 @@ class execuout extends executask {
 			catch(e_access) {
 				try {
 					await mkdirp(pd_dir);
+					break CHECK_MTIME;
 				}
 				catch(e_mkdirp) {
 					log.fail(pd_dir, 'failed to mkdir recursively');
 				}
 			}
+
+			// force update
+			if(b_force) break CHECK_MTIME;
+
+			// check file exists
+			try {
+				await fs_access(p_file, fs.constants.F_OK);
+			}
+			// output file does not exist
+			catch(e_access) {
+				break CHECK_MTIME;
+			}
+
+			// output modified time
+			let t_mtime = this.mtime = (await fs_stat(p_file)).mtimeMs;
+
+			// output is newer than all srcs; all done!
+			if(this.xdeps.every(si => t_mtime > this.graph.nodes[si].mtime)) {
+				log.notice(p_file, `${chalk.dim.yellow('➘')}${chalk.keyword('orange')('➚')} output is up-to-date`); // ⏩ 
+				return;
+			}
 		}
 
 		// bash run
 		await super.execute();
+
+		// update modified time
+		this.mtime = (await fs_stat(p_file)).mtimeMs;
 	}
 }
 
@@ -875,6 +908,7 @@ class execusrc extends executask {
 	async execute(g_config={}) {
 		let s_label = this.file;
 		let dk_stats = await fs_stat(this.file);
+		this.mtime = dk_stats.mtimeMs;
 
 		log.good(s_label, `${S_STATUS_PASS} modified ${time_ago(dk_stats.mtimeMs)} ago`);
 
@@ -994,7 +1028,7 @@ class emkfile {
 		if(z_node instanceof subtree) {
 			// reached end of target
 			if(!a_target.length) {
-				this.warn(`target '${a_path.join(s_split)}' leads to a non-leaf node. if you meant to run all sub-tasks, append a '${s_split}*' to the end, or use a recursive wildcard '**'`);
+				log.warn(a_path.join(s_split), `a target lead to this non-leaf node. if you meant to run all sub-tasks, append a '${s_split}*' to the end, or use a recursive wildcard '**'`);
 				return [];
 			}
 
@@ -1169,16 +1203,20 @@ class emkfile {
 
 				// they are not identical
 				if(!k_executask.identical(k_other)) {
-					log.fail(k_executask.path, `multiple tasks are trying to build the same output file yet are indicating different dependencies or run commands`, util.inspect({
-						'a)': {
-							deps: k_executask.deps,
-							run: k_executask.run,
+					debugger;
+					log.fail(k_executask.path, `multiple tasks are trying to build the same output file yet are indicating different dependencies or run commands`, gobble(`
+						a: {
+							deps: ${k_executask.deps.join(', ')},
+							run: >
+								${k_executask.run}
+							<
 						},
-						'b)': {
-							deps: k_other.deps,
-							run: k_other.run,
-						},
-					}));
+						b: {
+							deps: ${k_other.deps.join(', ')},
+							run: >
+								${k_other.run}
+							<
+						},`));
 				}
 			}
 		}
@@ -1280,7 +1318,13 @@ class emkfile {
 			// each file
 			for(let s_file of a_files) {
 				// test for exists
-				let dk_stats = fs.statSync(path.join(this.args.cwd, s_file));
+				let dk_stats;
+				try {
+					dk_stats = fs.statSync(path.join(this.args.cwd, s_file));
+				}
+				catch(e_stat) {
+					log.fail();
+				}
 
 				// add file dependency
 				as_srcs = new Set([
@@ -1297,7 +1341,7 @@ class emkfile {
 	async run(a_calls, g_config) {
 		// no calls
 		if(!a_calls.length) {
-			this.warn('no task specific. using default "all"');
+			this.warn('no task specified. using default "all"');
 			a_calls.push({call:'all'});
 		}
 
@@ -1444,13 +1488,14 @@ async function load(p_emkfile, g_args={}) {
 
 	// run calls
 	await k_emkfile.run(g_args.calls, {
+		force: g_args.force,
 		watch: g_args.watch,
 	});
 }
 
 
 if(module === require.main) {
-	let a_args_values_emk = ['-f', '--file', '-t', '--timeout'];
+	let a_args_values_emk = ['-u', '--use', '-t', '--timeout'];
 
 	// separate emk args from target args
 	let a_argv = process.argv;
@@ -1485,16 +1530,19 @@ if(module === require.main) {
 		.boolean('n')
 			.alias('n', 'dry-run')
 			.describe('n', 'show the targets and commands without executing them')
+		.boolean('f')
+			.alias('f', 'force')
+			.describe('f', 'force run all tasks (ignore modified time)')
 		.boolean('s')
 			.alias('s', 'silent')
 			.describe('s', 'do not echo commands')
 		.boolean('w')
 			.alias('w', 'watch')
 			.describe('w', 'watch dependency files and re-emk targets')
-		.string('f')
-			.nargs('f', 1)
-			.alias('f', 'file')
-			.describe('f', 'use specified emk file')
+		.string('u')
+			.nargs('u', 1)
+			.alias('u', 'use')
+			.describe('u', 'use specified emk file')
 		.number('t')
 			.nargs('t', 1)
 			.alias('t', 'timeout')
@@ -1564,7 +1612,7 @@ if(module === require.main) {
 	g_args.cwd = process.cwd();
 
 	// emk filename
-	let s_emk_file = g_args.file || 'emk.js';
+	let s_emk_file = g_args.use || 'emk.js';
 
 	// path to emk file
 	let p_emkfile = path.join(process.cwd(), s_emk_file);
