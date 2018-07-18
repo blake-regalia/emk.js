@@ -1486,7 +1486,10 @@ class emkfile {
 			console.log(S_LINE_BREAK);
 
 			// load new emkfile
-			load(this.source, this.args);
+			load(this.source, {
+				...this.args,
+				force: true,
+			});
 		}
 		// file was deleted
 		else if('remove' === s_event) {
