@@ -546,9 +546,9 @@ class executask {
 			&& k_other.deps.every(s => as_deps_this.has(s));
 	}
 
-	async update() {
+	async update(g_exec) {
 		// execute self
-		await this.execute();
+		await this.execute(g_exec);
 
 		// trigger dependent tasks
 		let as_sups = this.graph.invs[this.id];
@@ -558,14 +558,14 @@ class executask {
 
 		// each super; call update
 		for(let si_task of as_sups) {
-			k_graph.nodes[si_task].update();
+			k_graph.nodes[si_task].update(g_exec);
 		}
 
 		// root node; add line break
 		if(!as_sups.size) console.log(S_LINE_BREAK);
 	}
 
-	async execute() {
+	async execute(g_exec) {
 		let s_label = this.path;
 
 		// run
@@ -851,7 +851,7 @@ class diagram {
 }
 
 class execuout extends executask {
-	async execute({force:b_force=false}) {
+	async execute(g_exec={}) {
 		let p_file = this.path;
 
 		// output file
@@ -875,7 +875,7 @@ class execuout extends executask {
 			}
 
 			// force update
-			if(b_force) break CHECK_MTIME;
+			if(g_exec.force) break CHECK_MTIME;
 
 			// check file exists
 			try {
@@ -897,7 +897,7 @@ class execuout extends executask {
 		}
 
 		// bash run
-		await super.execute();
+		await super.execute(g_exec);
 
 		// update modified time
 		this.mtime = (await fs_stat(p_file)).mtimeMs;
@@ -918,7 +918,7 @@ class execusrc extends executask {
 		});
 	}
 
-	async execute(g_config={}) {
+	async execute(g_exec={}) {
 		let s_label = this.file;
 		let dk_stats = await fs_stat(this.file);
 		this.mtime = dk_stats.mtimeMs;
@@ -926,14 +926,14 @@ class execusrc extends executask {
 		log.good(s_label, `${S_STATUS_PASS} modified ${time_ago(dk_stats.mtimeMs)} ago`);
 
 		// watch file
-		if(g_config.watch) {
+		if(g_exec.watch) {
 			watch(s_label, (s_event, s_file) => {  // eslint-disable-line no-unused-vars
 				if('update' === s_event) {
 					// print
 					log.info(s_label, 'file was modified');
 
 					// call update
-					this.update(Date.now());
+					this.update(g_exec);
 				}
 				else if('remove' === s_event) {
 					log.fail(s_label, '🔥 dependency file was deleted');
