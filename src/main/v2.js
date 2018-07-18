@@ -118,14 +118,23 @@ const time_ago = (t_when) => {
 };
 
 
-const evaluate = (s_script, p_file, pd_dir, t_timeout=T_EVAL_TIMEOUT, b_module=false) => {
+const evaluate = (s_script, p_file, pd_dir, t_timeout=T_EVAL_TIMEOUT) => {
+	let a_deps = [];
 	let h_module = {exports:{}};
-	let f_require = s_package => require(  // eslint-disable-line global-require
-		require.resolve(s_package, {
+	let f_require = (s_package) => {
+		// resolve to path
+		let p_require = require.resolve(s_package, {
 			paths: [
 				pd_dir,
 			],
-		}));
+		});
+
+		// file dependency; add to dependency list
+		if('/' === p_require[0]) a_deps.push(p_require);
+
+		// load module
+		return require(p_require);  // eslint-disable-line global-require
+	};
 
 	let h_nodejs_env = {
 		__dirname: pd_dir,
@@ -170,7 +179,11 @@ const evaluate = (s_script, p_file, pd_dir, t_timeout=T_EVAL_TIMEOUT, b_module=f
 		log.fail(p_file, 'error in emk file script', e_run.stack);
 	}
 
-	return b_module? h_context.__EMK.module.exports: w_eval;
+	return {
+		returned: w_eval,
+		exports: h_context.__EMK.module.exports,
+		required: a_deps,
+	};
 };
 
 
@@ -936,7 +949,7 @@ class execusrc extends executask {
 }
 
 class emkfile {
-	constructor(g_emkfile={defs:{}, tasks:{}, outputs:{}}, g_args, p_emkfile) {
+	constructor(g_emkfile={defs:{}, tasks:{}, outputs:{}}, g_args, p_emkfile, a_deps) {
 		// normalize defs
 		let h_defs = {};
 		for(let [s_key, z_value] of Object.entries(g_emkfile.defs)) {
@@ -965,6 +978,8 @@ class emkfile {
 			args: g_args,
 
 			defs: h_defs,
+
+			deps: a_deps,
 		});
 
 		// process subtrees
@@ -1345,7 +1360,7 @@ class emkfile {
 			a_calls.push({call:'all'});
 		}
 
-		let k_graph = new graph();
+		let k_graph = this.graph = new graph();
 
 		let as_invocations = new Set();
 		for(let g_call of a_calls) {
@@ -1432,39 +1447,50 @@ class emkfile {
 
 		// watch
 		if(g_config.watch) {
-			// watch this file
-			let dy_watcher = watch(this.source, (s_event, s_file) => {  // eslint-disable-line no-unused-vars
-				// stop watching this file
-				dy_watcher.close();
+			// watch this file and all dependencies
+			this.watcher = watch([
+				this.source,
+				...this.deps,
+			], (...a_args) => this.reload(...a_args));
 
-				// file was modified
-				if('update' === s_event) {
-					// shutdown this emkfile
-					console.log(S_LINE_BREAK);
-
-					// print
-					this.warn(`💫  reloading emk file...`);
-
-					// close execusrc watchers
-					for(let [, k_executask] of Object.entries(k_graph.nodes)) {
-						if(k_executask instanceof execusrc && k_executask.watcher) {
-							k_executask.watcher.close();
-						}
-					}
-
-					// done
-					console.log(S_LINE_BREAK);
-
-					// load new emkfile
-					load(this.source, this.args);
-				}
-				// file was deleted
-				else if('remove' === s_event) {
-					this.error('🔥 emk file was deleted! continuing to watch dependency files...');
-				}
-			});
-
+			// print
 			this.notice(`👀  watching files...`);
+		}
+	}
+
+	reload(s_event, s_file) {  // eslint-disable-line no-unused-vars
+		// stop watching this file
+		this.watcher.close();
+
+		// file was modified
+		if('update' === s_event) {
+			// shutdown this emkfile
+			console.log(S_LINE_BREAK);
+
+			// clear require cache
+			for(let p_require in require.cache) {
+				delete require.cache[p_require];
+			}
+
+			// print
+			this.warn(`💫  reloading emk file...`);
+
+			// close execusrc watchers
+			for(let [, k_executask] of Object.entries(this.graph.nodes)) {
+				if(k_executask instanceof execusrc && k_executask.watcher) {
+					k_executask.watcher.close();
+				}
+			}
+
+			// done
+			console.log(S_LINE_BREAK);
+
+			// load new emkfile
+			load(this.source, this.args);
+		}
+		// file was deleted
+		else if('remove' === s_event) {
+			this.error(`🔥 ${s_file} file was deleted! continuing to watch dependency files...`);
 		}
 	}
 }
@@ -1480,11 +1506,17 @@ async function load(p_emkfile, g_args={}) {
 		log.fail(p_emkfile, 'no such file');
 	}
 
+	// prep emk instance
+	let k_emkfile;
+
 	// grab exports from emkfile
-	let g_emkfile = evaluate(s_emkfile, p_emkfile, g_args.cwd, g_args.timeout, true);
+	let {
+		exports: g_emkfile,
+		required: a_deps,
+	} = evaluate(s_emkfile, p_emkfile, g_args.cwd, g_args.timeout);
 
 	// create emk instance
-	let k_emkfile = new emkfile(g_emkfile, g_args, p_emkfile);
+	k_emkfile = new emkfile(g_emkfile, g_args, p_emkfile, a_deps);
 
 	// run calls
 	await k_emkfile.run(g_args.calls, {
@@ -1587,7 +1619,7 @@ if(module === require.main) {
 					config: 'g',
 				},
 				coerce: {
-					g: s_config => evaluate(`return ${s_config};`, 'command line option', process.cwd(), 1000),
+					g: s_config => evaluate(`return ${s_config};`, 'command line option', process.cwd(), 1000).returned,
 				},
 			});
 
