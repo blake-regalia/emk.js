@@ -49,7 +49,7 @@ module.exports = {
 					//   ($1="src/fragment/*.jison" and $2="src/fragment/*.jisonlex")
 					run: /* syntax: bash */ `
 						# compile grammar and lex
-						jison $1 $2 -o $@
+						npx jison $1 $2 -o $@
 					`,
 				}),
 			},
