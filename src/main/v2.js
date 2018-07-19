@@ -387,7 +387,7 @@ class subtree {
 					a_enums.push({
 						key: s_key,
 						frag: s_text,
-						matches: k_frag.binding? {[k_frag.binding]: s_text}: {},
+						matches: k_frag.binding? {[k_frag.binding]:s_text}: {},
 					});
 				}
 				// regex pattern
@@ -673,21 +673,34 @@ class task_creator {
 		});
 	}
 
-	run(h_args) {
+	prepare(a_path, h_args) {
+		let s_path = a_path.join('.');
+
+		// create object
+		let g_create = {};
+		let z_create = this.create(h_args);
+
+		// array; deps
+		if(Array.isArray(z_create)) {
+			g_create = {deps:z_create};
+		}
+		// string; dep
+		else if('string' === typeof z_create) {
+			g_create = {deps:[z_create]};
+		}
+		// object; reflect
+		else if('object' === typeof z_create && Object.toString() === z_create.constructor.toString()) {
+			g_create = z_create;
+		}
+		// something else
+		else {
+			log.fail(s_path, `invalid type returned from create callback: ${z_create}`);
+		}
+
 		let {
 			deps: a_deps=[],
 			run: s_run=null,
-		} = this.create(h_args);
-
-		// dependencies
-
-	}
-
-	prepare(s_path, h_args) {
-		let {
-			deps: a_deps=[],
-			run: s_run=null,
-		} = this.create(h_args);
+		} = g_create;
 
 		return new executask({
 			id: `${s_path}\0${a_deps.join('|')}\0${s_run}`,
@@ -742,8 +755,20 @@ class output_creator {
 			copy: s_src=null,
 		} = this.create(h_args);
 
+		let s_path = a_path.join('/');
+
 		// normalize deps
-		if('string' === typeof a_deps) a_deps = [a_deps];
+		if('string' === typeof a_deps) {
+			a_deps = [a_deps];
+		}
+		// check deps
+		else if(!Array.isArray(a_deps)) {
+			log.fail(s_path, `'.deps' value given is not an array or string: ${a_deps}`);
+		}
+		// assert all strings
+		else if(!a_deps.every(z => 'string' === typeof z)) {
+			log.fail(s_path, `'.deps' array must only contain strings`);
+		}
 
 		// copy
 		if(s_src) {
@@ -764,9 +789,9 @@ class output_creator {
 		}
 
 		return new execuout({
-			id: a_path.join('/'),
+			id: s_path,
 			args: h_args,
-			path: a_path.join('/'),
+			path: s_path,
 			deps: a_deps,
 			run: s_run,
 		});
@@ -931,7 +956,7 @@ class execusrc extends executask {
 			this.watcher = watch(s_label, (s_event, s_file) => {  // eslint-disable-line no-unused-vars
 				if('update' === s_event) {
 					// print
-					log.info(s_label, 'file was modified');
+					log.info(s_label, `file was modified @ ${(new Date()).toISOString()}`);
 
 					// call update
 					this.update(g_exec);
@@ -940,7 +965,7 @@ class execusrc extends executask {
 					log.fail(s_label, '🔥 dependency file was deleted');
 				}
 				else {
-					debugger;
+					throw new Error(`the node-watch module emitted and unexpected ${s_event} event`);
 				}
 			});
 		}
@@ -1051,120 +1076,135 @@ class emkfile {
 			// cast to instance
 			let k_node = z_node;
 
-			// ref target fragment at head of path
-			let k_target_frag = a_target[0];
+			// squash texts and enums
+			for(let i_squash=1; i_squash<=a_target.length; i_squash++) {
+				// ref target fragment at head of path
+				let k_target_frag = a_target[0];
 
-			// create subtarget
-			let a_subtarget = a_target.slice(1);
+				// squashing
+				if((i_squash-1)) {
+					if(!(a_target[i_squash-1] instanceof target_fragment_text)) {
+						return [];
+					}
 
-			// recursive glob; mutate sub pattern if it exists
-			if(k_target_frag instanceof target_fragment_wild_recursive) {
-				// more after this; OR in wild recursive
-				if(a_subtarget.length) {
-					a_subtarget[0] = a_subtarget[0].or_wild_recursive();
+					k_target_frag = new target_fragment_text(a_target.slice(0, i_squash).map(k => k.text).join(s_split));
 				}
-				// none after this, repeat wild recursive
-				else {
-					a_subtarget = [k_target_frag];
+
+				// create subtarget
+				let a_subtarget = a_target.slice(i_squash);
+
+				// recursive glob; mutate sub pattern if it exists
+				if(k_target_frag instanceof target_fragment_wild_recursive) {
+					// more after this; OR in wild recursive
+					if(a_subtarget.length) {
+						a_subtarget[0] = a_subtarget[0].or_wild_recursive();
+					}
+					// none after this, repeat wild recursive
+					else {
+						a_subtarget = [k_target_frag];
+					}
 				}
-			}
 
-			// prep subsearch
-			let g_subsearch = {
-				target: a_subtarget,
-				split: s_split,
-				info: h_info,
-			};
+				// prep subsearch
+				let g_subsearch = {
+					target: a_subtarget,
+					split: s_split,
+					info: h_info,
+				};
 
 
-			// target frag is exact text
-			if(k_target_frag instanceof target_fragment_text) {
-				// ref text from target frag
-				let s_text = k_target_frag.text;
+				// target frag is exact text
+				if(k_target_frag instanceof target_fragment_text) {
+					// ref text from target frag
+					let s_text = k_target_frag.text;
 
-				// match text
-				let {
-					texts: a_texts,
-					enums: a_enums,
-					regexes: a_regexes,
-				} = k_node.match_text(s_text);
-
-				// update path
-				g_subsearch.path = [...a_path, s_text];
-
-				// exact text match; take only
-				if(a_texts.length) {
-					g_subsearch.node = k_node.at(a_texts[0]);
-				}
-				// one of enum, or one of regex
-				else if(a_enums.length || a_regexes.length) {
-					// take first
+					// match text
 					let {
-						key: s_key,
-						frag: s_frag,
-						matches: h_matches,
-					} = a_enums[0] || a_regexes[0];
+						texts: a_texts,
+						enums: a_enums,
+						regexes: a_regexes,
+					} = k_node.match_text(s_text);
 
-					// update subsearch
-					Object.assign(g_subsearch, {
-						node: k_node.at(s_key),
-						path: [...a_path, s_frag],
-						info: {
-							...h_info,
-							...h_matches,
-						},
-					});
+					// update path
+					g_subsearch.path = [...a_path, s_text];
+
+					// exact text match; take only
+					if(a_texts.length) {
+						g_subsearch.node = k_node.at(a_texts[0]);
+					}
+					// one of enum, or one of regex
+					else if(a_enums.length || a_regexes.length) {
+						// take first
+						let {
+							key: s_key,
+							frag: s_frag,
+							matches: h_matches,
+						} = a_enums[0] || a_regexes[0];
+
+						// update subsearch
+						Object.assign(g_subsearch, {
+							node: k_node.at(s_key),
+							path: [...a_path, s_frag],
+							info: {
+								...h_info,
+								...h_matches,
+							},
+						});
+					}
+					// nothing matched; keep trying
+					else {
+						continue;
+					}
+
+					// recurse
+					return this.search(g_subsearch);
 				}
-				// nothing matched
+				// wild pattern; fork all
+				else if(k_target_frag instanceof target_fragment_wild) {
+					let a_hits = [];
+
+					// all paths
+					for(let {key:s_key, frag:s_frag, matches:h_matches} of k_node.match_wild()) {
+						a_hits.push(...this.search({
+							...g_subsearch,
+							node: k_node.at(s_key),
+							path: [...a_path, s_frag],
+							info: {
+								...h_info,
+								...h_matches,
+							},
+						}));
+					}
+
+					return a_hits;
+				}
+				// non-wild pattern; match each
+				else if(k_target_frag instanceof target_fragment_pattern) {
+					let a_hits = [];
+
+					// each key that matches pattern
+					for(let {key:s_key, frag:s_frag, matches:h_matches} of k_node.match_pattern(k_target_frag.pattern)) {
+						a_hits.push(...this.search({
+							...g_subsearch,
+							node: k_node.at(s_key),
+							path: [...a_path, s_frag],
+							info: {
+								...h_info,
+								...h_matches,
+							},
+						}));
+					}
+
+					return a_hits;
+				}
+				// something else
 				else {
-					return [];
+					debugger;
+					throw new Error(`unknown target qualifiers: ${a_target[0]}`);
 				}
-
-				// recurse
-				return this.search(g_subsearch);
 			}
-			// wild pattern; fork all
-			else if(k_target_frag instanceof target_fragment_wild) {
-				let a_hits = [];
 
-				// all paths
-				for(let {key:s_key, frag:s_frag, matches:h_matches} of k_node.match_wild()) {
-					a_hits.push(...this.search({
-						...g_subsearch,
-						node: k_node.at(s_key),
-						path: [...a_path, s_frag],
-						info: {
-							...h_info,
-							...h_matches,
-						},
-					}));
-				}
-
-				return a_hits;
-			}
-			// non-wild pattern; match each
-			else if(k_target_frag instanceof target_fragment_pattern) {
-				let a_hits = [];
-
-				// each key that matches pattern
-				for(let {key:s_key, frag:s_frag, matches:h_matches} of k_node.match_pattern(k_target_frag.pattern)) {
-					a_hits.push(...this.search({
-						...g_subsearch,
-						node: k_node.at(s_key),
-						path: [...a_path, s_frag],
-						info: {
-							...h_info,
-							...h_matches,
-						},
-					}));
-				}
-
-				return a_hits;
-			}
-			// something else
-			else {
-				throw new Error(`unknown target qualifiers: ${a_target[0]}`);
-			}
+			return [];
 		}
 		// node is a leaf, more to target
 		else if(a_target.length && !(a_target[0] instanceof target_fragment_wild_recursive)) {
@@ -1219,7 +1259,6 @@ class emkfile {
 
 				// they are not identical
 				if(!k_executask.identical(k_other)) {
-					debugger;
 					log.fail(k_executask.path, `multiple tasks are trying to build the same output file yet are indicating different dependencies or run commands`, gobble(`
 						a: {
 							deps: ${k_executask.deps.join(', ')},
@@ -1247,7 +1286,15 @@ class emkfile {
 		} = g_call;
 
 		// separate target and config
-		let [, s_target, s_config] = /^([^\s]+)(?:\s+(.*))?$/.exec(s_call);
+		let m_call = /^([^\s]+)(?:\s+(.*))?$/.exec(s_call);
+
+		// bad call
+		if(!m_call) {
+			throw new Error(`bad call: ${s_call}`);
+		}
+
+		// destructure
+		let [, s_target, s_config] = m_call;
 
 		// make args
 		let h_args = {
@@ -1504,6 +1551,9 @@ class emkfile {
 
 			// print
 			this.error(`🔥 ${s_file} file was deleted! continuing to watch dependency files...`);
+		}
+		else {
+			throw new Error(`the node-watch module emitted and unexpected ${s_event} event`);
 		}
 	}
 }

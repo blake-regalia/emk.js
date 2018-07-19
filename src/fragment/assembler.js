@@ -122,6 +122,36 @@ class pattern_fragment_enum extends pattern_fragment {
 
 }
 
+class match extends Array {
+	constructor(z_base) {
+		super();
+		this.push(z_base);
+	}
+
+	matches() {
+		return [...this];
+	}
+
+	toString() {
+		return this[0];
+	}
+}
+
+// given string prototype methods
+for(let s_method in String.prototype) {
+	if(!Array.prototype[s_method]) {
+		match.prototype[s_method] = function(...a_args) {
+			return String.prototype[s_method].apply(this.toString(), a_args);
+		};
+	}
+	// already in array
+	else {
+		match.prototype[s_method] = function(...a_args) {
+			throw new Error(`attempting to call '.${s_method}(${a_args.join(', ')})' on match object, which could be for either String or Array. to call on String, first cast the object to a string (e.g., +''). to call on Array of matches, cast to array by calling member '.matches()'`);
+		};
+	}
+}
+
 class pattern_fragment_regex extends pattern_fragment {
 	static from_regex_str(k_emk, s_regex, s_name='_', n_groups=null) {
 		return new pattern_fragment_regex({
@@ -170,7 +200,7 @@ class pattern_fragment_regex extends pattern_fragment {
 		let h_matches = {};
 
 		// create groups
-		let a_groups = this.binding;
+		let a_groups = [this.binding];
 		for(let i_add=0, s_var=this.binding; i_add<this.group_count; i_add++) {
 			a_groups.push(s_var);
 		}
@@ -179,7 +209,7 @@ class pattern_fragment_regex extends pattern_fragment {
 		for(let i_group=0, nl_match=m_match.length; i_group<nl_match-2; i_group++) {
 			let s_var = a_groups[i_group];
 
-			if(!(s_var in h_matches)) h_matches[s_var] = [m_match[i_group+2]];
+			if(!(s_var in h_matches)) h_matches[s_var] = new match(m_match[i_group+2]);
 			else h_matches[s_var].push(m_match[i_group+2]);
 		}
 

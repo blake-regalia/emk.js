@@ -5,10 +5,8 @@ module.exports = {
 		fragment_js: fs.readdirSync('./src/fragment')
 			.filter(s => s.endsWith('.js')),
 
-		main_file: [
-			'graph.js',
-			'v2.js',
-		],
+		main_js: fs.readdirSync('./src/main')
+			.filter(s => s.endsWith('.js')),
 
 		// main: {'src/main':'*.js'},
 		// fragment: {'src/fragment':'*.js'},
@@ -26,12 +24,10 @@ module.exports = {
 	outputs: {
 		build: {
 			main: {
-				':main_file': h => ({copy:`src/main/${h.main_file}`}),
+				':main_js': h => ({copy:`src/main/${h.main_js}`}),
 			},
 
 			fragment: {
-				// 'package.json': () => ({copy:'src/fragment/package.json'}),
-
 				':fragment_js': h => ({copy:`src/fragment/${h.fragment_js}`}),
 
 				'parser.js': () => ({
