@@ -1,8 +1,8 @@
 {
   "name": "emk",
   "version": "1.0.0",
-  "description": "ECMAScript Make - a build tool for the JavaScript elite",
-  "main": "build/main/v2.js",
+  "description": "ECMAScript Make - a powerful build tool for the JavaScript elite",
+  "main": "build/main/main.js",
   "directories": {
     "build": "./build"
   },
@@ -10,10 +10,14 @@
     "build": "mkdir -p build/fragment && cp src/fragment/*.js build/fragment && jison ./src/fragment/grammar.jison ./src/fragment/lex.jisonlex -o build/fragment/parser.js && mkdir -p build/main && cp src/main/* build/main"
   },
   "bin": {
-    "emk": "build/main/v2.js"
+    "emk": "build/main/main.js"
   },
   "repository": "blake-regalia/emk.js",
   "keywords": [
+    "build",
+    "system",
+    "make",
+    "tool",
     "Make",
     "Makefile",
     "build-tool"
