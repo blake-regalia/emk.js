@@ -492,7 +492,10 @@ class bash {
 
 	static prepare(h_variables, a_args=[]) {
 		// bash variables
-		return `set -- ${a_args.map(s => `"${s.replace(/"/g, '\\"')}"`).join(' ')}; `
+		return `set -- ${a_args.map(s => `"${
+			s.replace(/"/g, '\\"')
+				.replace(/\n/g, '\\n')
+		}"`).join(' ')}; `
 			+Object.keys(h_variables).map((s_var) => {
 				let z_value = h_variables[s_var];
 
@@ -703,7 +706,7 @@ class task_creator {
 		} = g_create;
 
 		return new executask({
-			id: `${s_path}\0${a_deps.join('|')}\0${s_run}`,
+			id: '#'+s_path,  //`@${s_path}\0${a_deps.join('|')}\0${s_run}`,
 			args: h_args,
 			path: s_path,
 			deps: a_deps,
