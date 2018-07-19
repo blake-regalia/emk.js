@@ -1,8 +1,8 @@
 # emk 🎂
 [![NPM version][npmv-image]][npmv-url] [![Build Status][travis-image]][travis-url] [![Dependency Status][david-image]][david-url] [![dependencies Status][david-dev-image]][david-dev-url]
 
-[npmv-image]: https://img.shields.io/npm/v/emk-cli.svg
-[npmv-url]: https://www.npmjs.com/package/emk-cli
+[npmv-image]: https://img.shields.io/npm/v/emk.svg
+[npmv-url]: https://www.npmjs.com/package/emk
 [travis-image]: https://travis-ci.org/blake-regalia/emk.js.svg?branch=master
 [travis-url]: https://travis-ci.org/blake-regalia/emk.js
 [david-image]: https://david-dm.org/blake-regalia/emk.js.svg
