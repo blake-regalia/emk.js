@@ -1,6 +1,6 @@
 {
   "name": "emk",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "ECMAScript Make - a powerful build tool for the JavaScript elite",
   "main": "build/main/main.js",
   "directories": {
