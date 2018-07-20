@@ -67,9 +67,9 @@ const log = {
 		console.error(`${chalk.red(`[${s_tag}]`)} ${s_text}`);
 	},
 	fail(s_tag, s_text, s_quote='', xc_exit=1) {
-		console.error(`-${chalk.redBright.bgBlackBright(` ${s_tag} `)} > ${chalk.red(s_text)}`
+		console.error(`-${chalk.redBright.bgBlackBright(` ${s_tag} `)} : ${chalk.red(s_text)}`
 				+(s_quote
-					? chalk.red(`\n${s_quote.split('\n').map(s => `   > ${s}`).join('\n')}`)
+					? chalk.red(`\n${pad(s_quote)}`)
 					: ''));
 		process.exit(xc_exit || 1);
 	},
@@ -325,11 +325,64 @@ class target_fragment_wild_recursive extends target_fragment_wild {
 
 class subtree {
 	constructor(k_emkfile, h_input, s_split, fk_child=null, a_prov=[]) {
+		let h_expanded = {};
+
+		// perform expansion before building subtrees
+		for(let s_key in h_input) {
+			let z_child = h_input[s_key];
+
+			// enum expansion
+			if(Array.isArray(z_child) && z_child.every(z => 'function' === typeof z)) {
+				// parse key
+				let k_frag = pattern_fragment_from_string(s_key, k_emkfile);
+
+				// prep enum
+				let a_enum;
+
+				// text
+				if(k_frag instanceof pattern_fragment_text) {
+					a_enum = [k_frag.text];
+				}
+				// enum
+				else if(k_frag instanceof pattern_fragment_enum) {
+					a_enum = k_frag.enum;
+				}
+				// pattern/other
+				else {
+					log.fail(`${a_prov.join(s_split)}${s_split}${s_key}`, `pattern fragment must be enumerable in order to use expansion`);
+				}
+
+				// each enum
+				for(let s_match of a_enum) {
+					// each expander
+					for(let f_create of z_child) {
+						// create struct
+						let h_expand = f_create(s_match);
+
+						// check each key for conflict
+						for(let s_expand in h_expand) {
+							if(s_expand in h_expanded) {
+								log.warn(`${a_prov.join(s_split)}${s_split}${s_expand}`, `this subtree is being dynamically overwritten by the expansion of '${a_prov.join(s_split)}${s_split}${s_key}' on enum item '${s_match}'`);
+							}
+
+							// add/overwrite
+							h_expanded[s_expand] = h_expand[s_expand];
+						}
+					}
+				}
+			}
+			// process normally
+			else {
+				h_expanded[s_key] = z_child;
+			}
+		}
+
+		// destination tree
 		let h_tree = {};
 
 		// build subtrees recursively
-		for(let s_key in h_input) {
-			let z_child = h_input[s_key];
+		for(let s_key in h_expanded) {
+			let z_child = h_expanded[s_key];
 
 			// prep subprov
 			let a_subprov = [...a_prov, s_key];
@@ -681,7 +734,13 @@ class task_creator {
 
 		// create object
 		let g_create = {};
-		let z_create = this.create(h_args);
+		let z_create;
+		try {
+			z_create = this.create(h_args);
+		}
+		catch(e_create) {
+			log.fail(s_path, `failed to create task recipe because there was an error in your callback function`, e_create.stack);
+		}
 
 		// array; deps
 		if(Array.isArray(z_create)) {
@@ -752,13 +811,21 @@ class output_creator {
 // 	}
 
 	prepare(a_path, h_args) {
+		let s_path = a_path.join('/');
+
+		let g_create;
+		try {
+			g_create = this.create(h_args);
+		}
+		catch(e_create) {
+			log.fail(s_path, `failed to create output recipe because there was an error in your callback function`, e_create.stack);
+		}
+
 		let {
 			deps: a_deps=[],
 			run: s_run='',
 			copy: s_src=null,
-		} = this.create(h_args);
-
-		let s_path = a_path.join('/');
+		} = g_create;
 
 		// normalize deps
 		if('string' === typeof a_deps) {
@@ -911,6 +978,8 @@ class execuout extends executask {
 		// output file
 		let pd_dir = path.dirname(p_file);
 
+		// prep to get time last modified
+		let t_mtime;
 
 		CHECK_MTIME: {
 			// assure directory exists and write access OK
@@ -940,12 +1009,17 @@ class execuout extends executask {
 				break CHECK_MTIME;
 			}
 
-			// output modified time
-			let t_mtime = this.mtime = (await fs_stat(p_file)).mtimeMs;
+			// last modified
+			try {
+				t_mtime = this.mtime = (await fs_stat(p_file)).mtimeMs;
+			}
+			catch(e_stat) {
+				log.fail(p_file, `failed to stat already existing file`, e_stat.stack);
+			}
 
 			// output is newer than all srcs; all done!
 			if(this.xdeps.every(si => t_mtime > this.graph.nodes[si].mtime)) {
-				log.notice(p_file, `${chalk.dim.yellow('➘')}${chalk.keyword('orange')('➚')} output is up-to-date`); // ⏩ 
+				log.notice(p_file, `${chalk.dim.yellow('➘')}${chalk.keyword('orange')('➚')} output is up-to-date`); // ⏩
 				return;
 			}
 		}
@@ -954,7 +1028,24 @@ class execuout extends executask {
 		await super.execute(g_exec);
 
 		// update modified time
-		this.mtime = (await fs_stat(p_file)).mtimeMs;
+		if(!t_mtime) {
+			try {
+				t_mtime = this.mtime = (await fs_stat(p_file)).mtimeMs;
+			}
+			catch(e_stat) {
+				// check if file exists
+				try {
+					await fs_access(p_file, fs.constants.F_OK);
+				}
+				// file does not exist
+				catch(e_access) {
+					log.fail(p_file, 'this output file never got created by your shell command, or it was deleted shortly after it was created', e_access.stack);
+				}
+
+				// it does exist, just couldn't stat it
+				log.fail(p_file, `failed to stat previously existing file`, e_stat.stack);
+			}
+		}
 	}
 }
 
@@ -1083,6 +1174,10 @@ class emkfile {
 	// critical failure
 	fail(s_text) {
 		log.fail(path.relative(this.args.cwd || process.cwd(), this.source), s_text);
+	}
+
+	expand(s_key) {
+
 	}
 
 	search(g_search) {
