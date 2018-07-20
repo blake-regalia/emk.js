@@ -603,6 +603,9 @@ class executask {
 	}
 
 	async update(g_exec) {
+		// increment update count
+		this.emkfile.updates_pending += 1;
+
 		// execute self
 		await this.execute(g_exec);
 
@@ -617,8 +620,13 @@ class executask {
 			k_graph.nodes[si_task].update(g_exec);
 		}
 
-		// root node; add line break
-		if(!as_sups.size) console.log(S_LINE_BREAK);
+		// decrement update count
+		this.emkfile.updates_pending -= 1;
+
+		// root node; let emkfile know this update finished
+		if(!as_sups.size) {
+			this.emkfile.update_finished();
+		}
 	}
 
 	async execute(g_exec) {
@@ -643,30 +651,12 @@ class executask {
 			u_run.stdout.on('data', (s_data) => {
 				// append to buffer
 				s_buffer_stdout += s_data;
-
-				// // print each newline
-				// let a_lines = s_buffer_stdout.split(/\n/g);
-				// for(let s_line of a_lines.slice(0, -1)) {
-				// 	log.quote(s_label, s_line);
-				// }
-
-				// // set to final un-terminated line
-				// s_buffer_stdout = a_lines[a_lines.length-1];
 			});
 
 			let s_buffer_stderr = '';
 			u_run.stderr.on('data', (s_data) => {
 				// append to buffer
 				s_buffer_stderr += s_data;
-
-				// // print each newline
-				// let a_lines = s_buffer_stderr.split(/\n/g);
-				// for(let s_line of a_lines.slice(0, -1)) {
-				// 	log.error(s_label, S_QUOTE_CMD+s_line);
-				// }
-
-				// // set to final un-terminated line
-				// s_buffer_stderr = a_lines[a_lines.length-1];
 			});
 
 			await new Promise((fk_run) => {
@@ -703,7 +693,7 @@ class executask {
 }
 
 class task_creator {
-	constructor(a_prov, z_value) {
+	constructor(a_prov, z_value, k_emkfile) {
 		let f_create;
 
 		// list of dependencies
@@ -726,6 +716,7 @@ class task_creator {
 		Object.assign(this, {
 			prov: a_prov,
 			create: f_create,
+			emkfile: k_emkfile,
 		});
 	}
 
@@ -770,45 +761,19 @@ class task_creator {
 			path: s_path,
 			deps: a_deps,
 			run: s_run,
+			emkfile: this.emkfile,
 		});
 	}
 }
 
 class output_creator {
-	constructor(a_prov, f_create) {
+	constructor(a_prov, f_create, k_emkfile) {
 		Object.assign(this, {
 			prov: a_prov,
 			create: f_create,
+			emkfile: k_emkfile,
 		});
 	}
-
-// 	match(s_target) {
-// 		let {
-// 			map: h_map,
-// 			patterns: h_patterns,
-// 		} = this;
-// debugger;
-// 		// list of matches
-// 		let a_matches = [];
-
-// 		// each pattern in map
-// 		for(let s_pattern in h_map) {
-// 			// already parsed
-// 			if(s_pattern in h_patterns) {
-// 				let g_pattern = h_patterns[s_pattern];
-
-// 				// does not match against target; continue onto next
-// 				if(!g_pattern.test(s_target)) continue;
-
-// 				// store match
-// 				a_matches.push(g_pattern);
-// 			}
-// 			// not yet parsed; save parsed pattern
-// 			else {
-// 				h_patterns[s_pattern] = component.parse(s_pattern);
-// 			}
-// 		}
-// 	}
 
 	prepare(a_path, h_args) {
 		let s_path = a_path.join('/');
@@ -864,6 +829,7 @@ class output_creator {
 			path: s_path,
 			deps: a_deps,
 			run: s_run,
+			emkfile: this.emkfile,
 		});
 	}
 }
@@ -1049,7 +1015,7 @@ class execuout extends executask {
 }
 
 class execusrc extends executask {
-	constructor(s_file, p_cwd, dk_stats, s_path) {
+	constructor(s_file, p_cwd, dk_stats, s_path, k_emkfile) {
 		super({
 			id: s_file,
 			path: s_path,
@@ -1060,11 +1026,13 @@ class execusrc extends executask {
 			stats: dk_stats,
 			graph: null,
 			watcher: null,
+			emkfile: k_emkfile,
 		});
 	}
 
 	async execute(g_exec={}) {
 		let s_label = this.file;
+
 		let dk_stats = await fs_stat(this.file);
 		this.mtime = dk_stats.mtimeMs;
 
@@ -1077,11 +1045,25 @@ class execusrc extends executask {
 					// print
 					log.info(s_label, `file was modified @ ${(new Date()).toISOString()}`);
 
+					// emk is busy updating
+					if(this.emkfile.updating) {
+						// let user know
+						log.warn(s_label, `an update chain is already running; postponing this update until previous one finishes`);
+
+						// run this update afterwards
+						return this.emkfile.updates.push(() => {
+							this.update(g_exec);
+						});
+					}
+
+					// let others know we are starting an update chain
+					this.emkfile.updating = true;
+
 					// call update
 					this.update(g_exec);
 				}
 				else if('remove' === s_event) {
-					log.fail(s_label, '🔥 dependency file was deleted');
+					log.fail(s_label, '🔥  dependency file was deleted');
 				}
 				else {
 					throw new Error(`the node-watch module emitted and unexpected ${s_event} event`);
@@ -1118,6 +1100,10 @@ class emkfile {
 
 		// save local fields
 		Object.assign(this, {
+			updating: false,
+			updates: [],
+			updates_pending: 0,
+
 			source: p_emkfile,
 
 			args: g_args,
@@ -1138,7 +1124,7 @@ class emkfile {
 				}
 
 				// normalize leaf
-				return new task_creator(a_prov, z_leaf);
+				return new task_creator(a_prov, z_leaf, this);
 			}),
 
 			outputs: new subtree(this, g_emkfile.outputs || {}, '/', (z_leaf, a_prov) => {
@@ -1150,7 +1136,7 @@ class emkfile {
 				}
 
 				// normalize leaf
-				return new output_creator(a_prov, z_leaf);
+				return new output_creator(a_prov, z_leaf, this);
 			}),
 		});
 	}
@@ -1175,8 +1161,20 @@ class emkfile {
 		log.fail(path.relative(this.args.cwd || process.cwd(), this.source), s_text);
 	}
 
-	expand(s_key) {
+	update_finished() {
+		// this was the last one
+		if(!this.updates_pending) {
+			// done updating
+			this.updating = false;
 
+			// print line break
+			console.log(S_LINE_BREAK);
+
+			// there are more updates; trigger first
+			if(this.updates.length) {
+				this.updates.shift()();
+			}
+		}
 	}
 
 	search(g_search) {
@@ -1516,7 +1514,7 @@ class emkfile {
 				as_srcs = new Set([
 					...as_srcs,
 					...this.add([
-						new execusrc(s_file, this.args.cwd, dk_stats, s_target),
+						new execusrc(s_file, this.args.cwd, dk_stats, s_target, this),
 					], h_args, k_graph)]);
 			}
 
