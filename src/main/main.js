@@ -14,7 +14,7 @@ const yargs = require('yargs');
 const yargs_parser = require('yargs-parser');
 
 const fs_access = util.promisify(fs.access);
-const fs_stat = util.promisify(fs.stat);
+const fs_stat = util.promisify(fs.lstat);
 
 const graph = require('./graph.js');
 
@@ -1507,7 +1507,7 @@ class emkfile {
 				// test for exists
 				let dk_stats;
 				try {
-					dk_stats = fs.statSync(path.join(this.args.cwd, s_file));
+					dk_stats = fs.lstatSync(path.join(this.args.cwd, s_file));
 				}
 				catch(e_stat) {
 					log.fail();
