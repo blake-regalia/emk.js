@@ -1027,22 +1027,21 @@ class execuout extends executask {
 		// bash run
 		await super.execute(g_exec);
 
+		// make sure file exists
+		try {
+			await fs_access(p_file, fs.constants.F_OK);
+		}
+		// file does not exist
+		catch(e_access) {
+			log.fail(p_file, 'this output file never got created by your shell command, or it was deleted shortly after it was created', e_access.stack);
+		}
+
 		// update modified time
 		if(!t_mtime) {
 			try {
 				t_mtime = this.mtime = (await fs_stat(p_file)).mtimeMs;
 			}
 			catch(e_stat) {
-				// check if file exists
-				try {
-					await fs_access(p_file, fs.constants.F_OK);
-				}
-				// file does not exist
-				catch(e_access) {
-					log.fail(p_file, 'this output file never got created by your shell command, or it was deleted shortly after it was created', e_access.stack);
-				}
-
-				// it does exist, just couldn't stat it
 				log.fail(p_file, `failed to stat previously existing file`, e_stat.stack);
 			}
 		}
