@@ -981,7 +981,7 @@ class emkfile {
 	constructor(g_emkfile={defs:{}, tasks:{}, outputs:{}}, g_args, p_emkfile, a_deps) {
 		// normalize defs
 		let h_defs = {};
-		for(let [s_key, z_value] of Object.entries(g_emkfile.defs)) {
+		for(let [s_key, z_value] of Object.entries(g_emkfile.defs || {})) {
 			// enumeration; create instance
 			if(Array.isArray(z_value)) {
 				h_defs[s_key] = pattern_fragment_enum.from_list(this, z_value, s_key);
@@ -1013,7 +1013,7 @@ class emkfile {
 
 		// process subtrees
 		Object.assign(this, {
-			tasks: new subtree(this, g_emkfile.tasks, '.', (z_leaf, a_prov) => {
+			tasks: new subtree(this, g_emkfile.tasks || {}, '.', (z_leaf, a_prov) => {
 				let si_task = a_prov.join('.');
 
 				// task id contains slashes
@@ -1025,7 +1025,7 @@ class emkfile {
 				return new task_creator(a_prov, z_leaf);
 			}),
 
-			outputs: new subtree(this, g_emkfile.outputs, '/', (z_leaf, a_prov) => {
+			outputs: new subtree(this, g_emkfile.outputs || {}, '/', (z_leaf, a_prov) => {
 				let si_output = a_prov.join('/');
 
 				// check child type
