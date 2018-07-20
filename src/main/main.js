@@ -801,18 +801,44 @@ class output_creator {
 	}
 }
 
+class key_space {
+	constructor() {
+		Object.assign(this, {
+			index: 0,
+		});
+	}
+
+	reset() {
+		this.index = 0;
+	}
+
+	next() {
+		let i_index = this.index++;
+
+		if(i_index < 26) {
+			return String.fromCharCode(97+i_index);
+		}
+		else if(i_index < 52) {
+			return String.fromCharCode(65+(i_index-26));
+		}
+		else {
+			return String.fromCodePoint(192+(i_index-52));
+		}
+	}
+}
+
 class diagram {
 	constructor(h_edges) {
 		Object.assign(this, {
 			edges: h_edges,
 			refs: {},
 			round: 0,
-			short: 0,
+			short: new key_space(),
 		});
 	}
 
 	draw(h_tree) {
-		this.short = 'a'.charCodeAt(0);
+		this.short.reset();
 		let s_diagram = this.draw_subtree(h_tree)+`${S_ESC_CLEAR_EOL}\n`;
 		this.round += 1;
 		return s_diagram;
@@ -844,7 +870,7 @@ class diagram {
 				}
 
 				// make and save ref
-				let s_short = i_round+String.fromCharCode(this.short++);
+				let s_short = i_round+this.short.next();
 				h_refs[z_value] = s_short;
 
 				// format label
