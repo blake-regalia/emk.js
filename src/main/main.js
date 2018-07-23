@@ -975,17 +975,26 @@ class execuout extends executask {
 				break CHECK_MTIME;
 			}
 
-			// last modified
+			// stat file
+			let dk_stats;
 			try {
-				t_mtime = this.mtime = (await fs_stat(p_file)).mtimeMs;
+				dk_stats = (await fs_stat(p_file));
 			}
 			catch(e_stat) {
 				log.fail(p_file, `failed to stat already existing file`, e_stat.stack);
 			}
 
+			// last modified
+			t_mtime = this.mtime = dk_stats.mtimeMs;
+
 			// output is newer than all srcs; all done!
 			if(this.xdeps.every(si => t_mtime > this.graph.nodes[si].mtime)) {
 				log.notice(p_file, `${chalk.dim.yellow('➘')}${chalk.keyword('orange')('➚')} output is up-to-date`); // ⏩
+				return;
+			}
+			// output is symlink; no need to link same target again
+			else if(dk_stats.isSymbolicLink()) {
+				log.notice(p_file, '🔗  output is already symbolically linked');
 				return;
 			}
 		}
