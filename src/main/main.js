@@ -1416,7 +1416,7 @@ class emkfile {
 		} = g_call;
 
 		// separate target and config
-		let m_call = /^([^\s]+)(?:\s+(.*))?$/.exec(s_call);
+		let m_call = /^([^:]+)(?::(.*))?$/.exec(s_call);
 
 		// bad call
 		if(!m_call) {
