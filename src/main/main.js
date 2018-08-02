@@ -634,61 +634,123 @@ class executask {
 
 		// run
 		if(this.run) {
-			// bash command
-			let s_bash = bash.contextify(this.run, {
-				target: this.path,
-				deps: this.xdeps,
-			});
+			const run = async(z_run) => {
+				// normalize into array
+				let a_run = Array.isArray(z_run)? z_run: [z_run];
 
-			// print
-			log.notice(s_label, `${chalk.dim('args:')} ${JSON.stringify(this.xdeps)}; ${chalk.dim('vars:')} ${JSON.stringify(this.args)}\n`
-				+`${pad(chalk.keyword('steelblue')(gobble(s_bash, '')+'\n'), S_QUOTE_IN)}`);
+				// each item in array
+				for(let i_item=0, nl_items=a_run.length; i_item<nl_items; i_item++) {
+					let z_item = a_run[i_item];
 
-			// run process
-			let u_run = bash.spawn(s_bash, this.args, this.xdeps);
+					// give suffix to distinguish
+					let s_suffix = a_run.length > 1? '#'+i_item: '';
 
-			let s_buffer_stdout = '';
-			u_run.stdout.on('data', (s_data) => {
-				// append to buffer
-				s_buffer_stdout += s_data;
-			});
-
-			let s_buffer_stderr = '';
-			u_run.stderr.on('data', (s_data) => {
-				// append to buffer
-				s_buffer_stderr += s_data;
-			});
-
-			await new Promise((fk_run) => {
-				u_run.on('exit', (n_code) => {
-					// print last of buffers
-					if(s_buffer_stdout) {
-						log.quote(s_label, S_QUOTE_CMD+'\n'+pad(s_buffer_stdout));
+					// string; run as bash script
+					if('string' === typeof z_item) {
+						await this.execute_bash(z_item, s_label+s_suffix);
 					}
-					if(s_buffer_stderr) {
-						log.error(s_label, S_QUOTE_CMD+'\n'+pad(s_buffer_stderr));
-					}
+					// function; run as callback
+					else if('function' === typeof z_item) {
+						// capture result
+						let z_res = await this.execute_callback(z_item, s_label+s_suffix);
 
-					// error
-					if(n_code) {
-						// let user know in case they are watching files
-						process.stdout.write('\x07');
-						log.fail(s_label, `command(s) resulted in non-zero exit code '${n_code}'`);
+						// returned something
+						if('string' === typeof z_res || 'function' === typeof z_res || Array.isArray(z_res)) {
+							await run(z_res);
+						}
 					}
-					// success
+					// invalid type
 					else {
-						log.good(s_label, `${S_STATUS_PASS} done`); // ✔
+						log.fail(s_label, `invalid run type given : ${z_item}`);
 					}
+				}
+			};
 
-					// resolve
-					fk_run();
-				});
-			});
+			await run(this.run);
 		}
 		// completed task group
 		else {
 			log.good(s_label, `👍`);
 		}
+	}
+
+	async execute_callback(f_run, s_label) {
+		// stringify function
+		let s_run = f_run.toString();
+
+		// print
+		log.notice(s_label, `${chalk.dim('args:')} ${JSON.stringify(this.xdeps)}; ${chalk.dim('vars:')} ${JSON.stringify(this.args)}\n`
+			+`${pad(chalk.keyword('steelblue')(gobble(s_run, '')+'\n'), S_QUOTE_IN)}`);
+
+		// safely execute
+		let z_res;
+		try {
+			z_res = await f_run(this.path, ...this.xdeps);
+		}
+		catch(e_run) {
+			// let user know in case they are watching files
+			process.stdout.write('\x07');
+			log.fail(s_label, `callback resulted in an error being thrown: '${e_run.message}'\n${e_run.stack}`);
+		}
+
+		// success
+		log.good(s_label, `${S_STATUS_PASS} done`); // ✔
+
+		// return result
+		return z_res;
+	}
+
+	async execute_bash(s_script, s_label) {
+		// bash command
+		let s_bash = bash.contextify(s_script, {
+			target: this.path,
+			deps: this.xdeps,
+		});
+
+		// print
+		log.notice(s_label, `${chalk.dim('args:')} ${JSON.stringify(this.xdeps)}; ${chalk.dim('vars:')} ${JSON.stringify(this.args)}\n`
+			+`${pad(chalk.keyword('steelblue')(gobble(s_bash, '')+'\n'), S_QUOTE_IN)}`);
+
+		// run process
+		let u_run = bash.spawn(s_bash, this.args, this.xdeps);
+
+		let s_buffer_stdout = '';
+		u_run.stdout.on('data', (s_data) => {
+			// append to buffer
+			s_buffer_stdout += s_data;
+		});
+
+		let s_buffer_stderr = '';
+		u_run.stderr.on('data', (s_data) => {
+			// append to buffer
+			s_buffer_stderr += s_data;
+		});
+
+		await new Promise((fk_run) => {
+			u_run.on('exit', (n_code) => {
+				// print last of buffers
+				if(s_buffer_stdout) {
+					log.quote(s_label, S_QUOTE_CMD+'\n'+pad(s_buffer_stdout));
+				}
+				if(s_buffer_stderr) {
+					log.error(s_label, S_QUOTE_CMD+'\n'+pad(s_buffer_stderr));
+				}
+
+				// error
+				if(n_code) {
+					// let user know in case they are watching files
+					process.stdout.write('\x07');
+					log.fail(s_label, `command(s) resulted in non-zero exit code '${n_code}'`);
+				}
+				// success
+				else {
+					log.good(s_label, `${S_STATUS_PASS} done`); // ✔
+				}
+
+				// resolve
+				fk_run();
+			});
+		});
 	}
 }
 

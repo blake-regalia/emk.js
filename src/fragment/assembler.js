@@ -232,6 +232,8 @@ const permutate = (a_frags, s_current='', a_combos=[]) => {
 			permutate(a_subfrags, s_current+s_text, a_combos);
 		}
 	}
+
+	return a_combos;
 };
 
 let h_eval = {
@@ -276,6 +278,7 @@ let h_eval = {
 
 		// no patterns; make all permutations
 		if(a_frags.every(k => !(k instanceof pattern_fragment_regex))) {
+			// TODO: match subgroups
 			return pattern_fragment_enum.from_list(k_emk, permutate(a_frags));
 		}
 		// make pattern
