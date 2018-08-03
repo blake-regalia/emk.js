@@ -1578,7 +1578,7 @@ class emkfile {
 					dk_stats = fs.lstatSync(path.join(this.args.cwd, s_file));
 				}
 				catch(e_stat) {
-					log.fail();
+					log.fail(s_path, `dependency file does not exist: '${s_file}'`);
 				}
 
 				// add file dependency
