@@ -475,12 +475,14 @@ class subtree {
 			// enum fragment
 			else if(k_frag instanceof pattern_fragment_enum) {
 				// each item in enum
-				for(let s_frag of k_frag.enum) {
+				for(let {bindings:h_bindings, value:s_frag} of k_frag.combos) {
 					// struct
 					yield {
 						key: s_key,
 						frag: s_frag,
-						matches: k_frag.binding? {[k_frag.binding]:s_frag}: {},
+						matches: h_bindings || (k_frag.binding
+							? {[k_frag.binding]:s_frag}
+							: {}),
 					};
 				}
 			}

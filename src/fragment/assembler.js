@@ -99,6 +99,20 @@ class pattern_fragment_enum extends pattern_fragment {
 		return new pattern_fragment_enum({
 			emk: k_emk,
 			enum: a_enum,
+			combos: a_enum.map(s => ({
+				bindings: null,
+				value: s,
+			})),
+		});
+	}
+
+	static from_combos(k_emk, a_combos) {
+		return new pattern_fragment_enum({
+			emk: k_emk,
+			enum: a_combos.map(({
+				value: s,
+			}) => s),
+			combos: a_combos,
 		});
 	}
 
@@ -120,6 +134,9 @@ class pattern_fragment_enum extends pattern_fragment {
 		return null;
 	}
 
+	bind_pattern(s_key) {
+
+	}
 }
 
 class match extends Array {
@@ -218,18 +235,26 @@ class pattern_fragment_regex extends pattern_fragment {
 	}
 }
 
-const permutate = (a_frags, s_current='', a_combos=[]) => {
-	if(!a_frags.length) a_combos.push(s_current);
+const permutate = (a_frags, s_current='', a_combos=[], h_bindings={}) => {
+	if(!a_frags.length) {
+		a_combos.push({
+			bindings: h_bindings,
+			value: s_current,
+		});
+	}
 
 	let k_frag = a_frags[0];
 	let a_subfrags = a_frags.slice(1);
 
 	if(k_frag instanceof pattern_fragment_text) {
-		permutate(a_subfrags, s_current+k_frag.text, a_combos);
+		permutate(a_subfrags, s_current+k_frag.text, a_combos, h_bindings);
 	}
 	else if(k_frag instanceof pattern_fragment_enum) {
 		for(let s_text of k_frag.enum) {
-			permutate(a_subfrags, s_current+s_text, a_combos);
+			permutate(a_subfrags, s_current+s_text, a_combos, {
+				...h_bindings,
+				[k_frag.binding]: s_text,
+			});
 		}
 	}
 
@@ -278,8 +303,7 @@ let h_eval = {
 
 		// no patterns; make all permutations
 		if(a_frags.every(k => !(k instanceof pattern_fragment_regex))) {
-			// TODO: match subgroups
-			return pattern_fragment_enum.from_list(k_emk, permutate(a_frags));
+			return pattern_fragment_enum.from_combos(k_emk, permutate(a_frags));
 		}
 		// make pattern
 		else {
