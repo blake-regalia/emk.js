@@ -81,7 +81,7 @@ class pattern_fragment_text extends pattern_fragment {
 }
 
 class pattern_fragment_enum extends pattern_fragment {
-	static from_list(k_emk, a_enum) {
+	static from_list(k_emk, a_enum, s_binding) {
 		// // convert to regex
 		// let s_pattern = a_enum.map(F_TEXT_TO_REGEX).join('|');
 
@@ -100,7 +100,9 @@ class pattern_fragment_enum extends pattern_fragment {
 			emk: k_emk,
 			enum: a_enum,
 			combos: a_enum.map(s => ({
-				bindings: null,
+				bindings: {
+					[s_binding]: s,
+				},
 				value: s,
 			})),
 		});
