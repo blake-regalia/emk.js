@@ -440,7 +440,7 @@ class subtree {
 					a_enums.push({
 						key: s_key,
 						frag: s_text,
-						matches: k_frag.binding? {[k_frag.binding]:s_text}: {},
+						matches: k_frag.combos.find(g_combo => s_text === g_combo.value).bindings,
 					});
 				}
 				// regex pattern
@@ -516,7 +516,7 @@ class subtree {
 					yield {
 						key: s_key,
 						frag: s_frag,
-						matches: k_frag.binding? {[k_frag.binding]:s_frag}: {},
+						matches: k_frag.combos.find(g_combo => r_pattern.test(g_combo.value)).bindings,
 					};
 				}
 			}
