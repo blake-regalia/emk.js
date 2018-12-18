@@ -5,6 +5,7 @@ const cp = require('child_process');
 const path = require('path');
 const util = require('util');
 const vm = require('vm');
+const url = require('url');
 
 const mkdirp = require('mkdirp-promise');
 const watch = require('node-watch');
@@ -12,6 +13,7 @@ const glob = require('bash-glob');
 const chalk = require('chalk');
 const yargs = require('yargs');
 const yargs_parser = require('yargs-parser');
+const request = require('request-promise');
 
 const fs_access = util.promisify(fs.access);
 const fs_stat = util.promisify(fs.lstat);
@@ -43,6 +45,7 @@ const S_QUOTE_CMD = chalk.dim('> ');
 const S_QUOTE_IN = chalk.dim('< ');
 const S_LINE_BREAK = '------------------------------------------------------';
 
+const A_URL_PROTOCOLS_SUPPORTED = ['http:', 'https:'];
 
 const log = {
 	log(s_tag, s_text) {
@@ -75,6 +78,20 @@ const log = {
 	},
 };
 
+const url_stat = async(p_url, s_path) => {
+	let d_res;
+	try {
+		d_res = await request.head({
+			uri: p_url,
+			simple: true,
+			resolveWithFullResponse: true,
+		});
+	}
+	catch(e_request) {
+		log.fail(s_path, `dependency URL either returned non-200 response or there was a network error: '${p_url}'`);
+	}
+	return d_res;
+};
 
 const gobble = (s_text, s_space='\t') => {
 	let m_pad = /^(\s+)/.exec(s_text.replace(/^\n+/, ''));
@@ -1148,6 +1165,33 @@ class execusrc extends executask {
 	}
 }
 
+class execuurl extends executask {
+	constructor(p_url, p_cwd, d_res_head, s_path, k_emkfile) {
+		super({
+			id: p_url,
+			path: s_path,
+			deps: [],
+			run: null,
+			file: null,
+			response_headers: d_res_head.headers,
+			cwd: p_cwd,
+			graph: null,
+			watcher: null,
+			emkfile: k_emkfile,
+		});
+	}
+
+	async execute(g_exec={}) {
+		let p_url = this.path;
+
+		let d_res = await url_stat(p_url, this.path);
+
+		let xt_mtime = this.mtime = (new Date(d_res.headers['last-modified'])).getTime();
+
+		log.good(p_url, `${S_STATUS_PASS} modified ${time_ago(xt_mtime)} ago`);
+	}
+}
+
 class emkfile {
 	constructor(g_emkfile={defs:{}, tasks:{}, outputs:{}}, g_args, p_emkfile, a_deps) {
 		// normalize defs
@@ -1411,7 +1455,7 @@ class emkfile {
 		}
 	}
 
-	add(a_executasks, h_args, k_graph) {
+	async add(a_executasks, h_args, k_graph) {
 		let as_ids = new Set();
 
 		// each matching task
@@ -1434,10 +1478,10 @@ class emkfile {
 				for(let s_dep_call of k_executask.deps) {
 					as_dep_ids = new Set([
 						...as_dep_ids,
-						...this.plot({
+						...(await this.plot({
 							call: s_dep_call,
 							args: h_args,
-						}, k_graph, k_executask.path),
+						}, k_graph, k_executask.path)),
 					]);
 				}
 
@@ -1473,7 +1517,7 @@ class emkfile {
 		return as_ids;
 	}
 
-	plot(g_call, k_graph, s_path) {
+	async plot(g_call, k_graph, s_path) {
 		let {
 			call: s_call,
 			args: h_args_pre,
@@ -1484,7 +1528,7 @@ class emkfile {
 
 		// bad call
 		if(!m_call) {
-			throw new Error(`bad call: ${s_call}`);
+			throw new Error(`bad dependency call: ${s_call}`);
 		}
 
 		// destructure
@@ -1526,7 +1570,7 @@ class emkfile {
 
 			// tasks matched
 			if(a_executasks.length) {
-				return this.add(a_executasks, h_args, k_graph);
+				return await this.add(a_executasks, h_args, k_graph);
 			}
 		}
 
@@ -1545,7 +1589,40 @@ class emkfile {
 
 			// outputs matched
 			if(a_executasks.length) {
-				return this.add(a_executasks, h_args, k_graph);
+				return await this.add(a_executasks, h_args, k_graph);
+			}
+		}
+
+		// might be a URL dependency
+		{
+			// try parsing as URL
+			let g_url;
+			try {
+				g_url = new url(s_target);
+			}
+			catch(e_parse) {}
+
+			// yes, it is a URL
+			if(g_url) {
+				// unsupported protocol
+				if(!A_URL_PROTOCOLS_SUPPORTED.includes(g_url.protocol)) {
+					throw new Error(`URL protocol "${g_url.protocol}" not supported`);
+				}
+
+				// serialize url value
+				let p_url = g_url.href;
+
+				// test for exists
+				let d_res = await url_stat(p_url, s_path);
+
+				// sources
+				let as_srcs = new Set([
+					...(await this.add([
+						new execuurl(p_url, this.args.cwd, d_res, s_path, this),
+					], h_args, k_graph)),
+				]);
+
+				return as_srcs;
 			}
 		}
 
@@ -1586,9 +1663,10 @@ class emkfile {
 				// add file dependency
 				as_srcs = new Set([
 					...as_srcs,
-					...this.add([
+					...(await this.add([
 						new execusrc(s_file, this.args.cwd, dk_stats, s_target, this),
-					], h_args, k_graph)]);
+					], h_args, k_graph)),
+				]);
 			}
 
 			return as_srcs;
@@ -1608,7 +1686,7 @@ class emkfile {
 		for(let g_call of a_calls) {
 			as_invocations = [
 				...as_invocations,
-				...this.plot(g_call, k_graph, 'emk.js'),
+				...(await this.plot(g_call, k_graph, 'emk.js')),
 			];
 		}
 
@@ -1753,6 +1831,7 @@ class emkfile {
 }
 
 
+const ST_PROMISE = '[object Promise]';
 async function load(p_emkfile, g_args={}) {
 	// read emkfile contents
 	let s_emkfile;
@@ -1768,9 +1847,25 @@ async function load(p_emkfile, g_args={}) {
 
 	// grab exports from emkfile
 	let {
-		exports: g_emkfile,
+		exports: z_emkfile,
 		required: a_deps,
 	} = evaluate(s_emkfile, p_emkfile, g_args.cwd, g_args.timeout);
+
+	// emkfile object
+	let g_emkfile = z_emkfile;
+
+	// invalid export
+	if(!z_emkfile) {
+		throw new Error(`falsy module.exports value in emk file: ${z_emkfile}`);
+	}
+	// export is a function; run and await resolve
+	else if('function' === typeof z_emkfile) {
+		g_emkfile = await z_emkfile();
+	}
+	// export is Promise
+	else if('object' === typeof z_emkfile && 'toString' in z_emkfile && ST_PROMISE === z_emkfile.toString()) {
+		g_emkfile = await z_emkfile;
+	}
 
 	// create emk instance
 	k_emkfile = new emkfile(g_emkfile, g_args, p_emkfile, a_deps);
