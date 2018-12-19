@@ -5,7 +5,7 @@ const cp = require('child_process');
 const path = require('path');
 const util = require('util');
 const vm = require('vm');
-const url = require('url');
+const url = require('url').URL;
 
 const mkdirp = require('mkdirp-promise');
 const watch = require('node-watch');
@@ -746,7 +746,7 @@ class executask {
 		});
 
 		await new Promise((fk_run) => {
-			u_run.on('exit', (n_code) => {
+			u_run.on('exit', async(n_code) => {
 				// print last of buffers
 				if(s_buffer_stdout) {
 					log.quote(s_label, S_QUOTE_CMD+'\n'+pad(s_buffer_stdout));
@@ -757,6 +757,9 @@ class executask {
 
 				// error
 				if(n_code) {
+					// cleanup
+					await this.cleanup();
+
 					// let user know in case they are watching files
 					process.stdout.write('\x07');
 					log.fail(s_label, `command(s) resulted in non-zero exit code '${n_code}'`);
@@ -771,6 +774,8 @@ class executask {
 			});
 		});
 	}
+
+	async cleanup() {}  // eslint-disable-line
 }
 
 class task_creator {
@@ -1102,6 +1107,16 @@ class execuout extends executask {
 			}
 		}
 	}
+
+	// error while running script
+	async cleanup() {  // eslint-disable-line require-await
+		// set mtime to null if target exists
+		try {
+			fs.utimesSync(this.path, new Date(), 0);
+			log.warn(this.path, 'set mtime of failed build target file to 0');
+		}
+		catch(e_utimes) {}
+	}
 }
 
 class execusrc extends executask {
@@ -1169,6 +1184,7 @@ class execuurl extends executask {
 	constructor(p_url, p_cwd, d_res_head, s_path, k_emkfile) {
 		super({
 			id: p_url,
+			url: p_url,
 			path: s_path,
 			deps: [],
 			run: null,
@@ -1182,7 +1198,7 @@ class execuurl extends executask {
 	}
 
 	async execute(g_exec={}) {
-		let p_url = this.path;
+		let p_url = this.url;
 
 		let d_res = await url_stat(p_url, this.path);
 
@@ -1524,7 +1540,7 @@ class emkfile {
 		} = g_call;
 
 		// separate target and config
-		let m_call = /^([^:]+)(?::(.*))?$/.exec(s_call);
+		let m_call = /^((?:[^:]|:[^{])+)(?::({.*))?$/.exec(s_call);
 
 		// bad call
 		if(!m_call) {
@@ -1540,7 +1556,15 @@ class emkfile {
 			...(s_config
 				? (() => {
 					try {
-						return JSON.parse(s_config);
+						let y_script = new vm.Script(`(${s_config})`, {
+							filename: '#dependency-JSON',
+						});
+
+						// evaluate code, grab exports
+						return y_script.runInNewContext({}, {
+							filename: '#dependency-JSON',
+							timeout: 500,
+						});
 					}
 					catch(e_parse) {
 						this.fail(`failed to parse config json: '${s_config}'`);
@@ -1554,6 +1578,39 @@ class emkfile {
 			target: s_target,
 			args: h_args,
 		};
+
+		// might be a URL dependency
+		{
+			// try parsing as URL
+			let g_url;
+			try {
+				g_url = new url(s_target);
+			}
+			catch(e_parse) {}
+
+			// yes, it is a URL
+			if(g_url) {
+				// unsupported protocol
+				if(!A_URL_PROTOCOLS_SUPPORTED.includes(g_url.protocol)) {
+					throw new Error(`URL protocol "${g_url.protocol}" not supported`);
+				}
+
+				// serialize url value
+				let p_url = g_url.href;
+
+				// test for exists
+				let d_res = await url_stat(p_url, s_path);
+
+				// sources
+				let as_srcs = new Set([
+					...(await this.add([
+						new execuurl(p_url, this.args.cwd, d_res, s_path, this),
+					], h_args, k_graph)),
+				]);
+
+				return as_srcs;
+			}
+		}
 
 		// attempt to match against task
 		{
@@ -1593,39 +1650,6 @@ class emkfile {
 			}
 		}
 
-		// might be a URL dependency
-		{
-			// try parsing as URL
-			let g_url;
-			try {
-				g_url = new url(s_target);
-			}
-			catch(e_parse) {}
-
-			// yes, it is a URL
-			if(g_url) {
-				// unsupported protocol
-				if(!A_URL_PROTOCOLS_SUPPORTED.includes(g_url.protocol)) {
-					throw new Error(`URL protocol "${g_url.protocol}" not supported`);
-				}
-
-				// serialize url value
-				let p_url = g_url.href;
-
-				// test for exists
-				let d_res = await url_stat(p_url, s_path);
-
-				// sources
-				let as_srcs = new Set([
-					...(await this.add([
-						new execuurl(p_url, this.args.cwd, d_res, s_path, this),
-					], h_args, k_graph)),
-				]);
-
-				return as_srcs;
-			}
-		}
-
 		// should be a file pattern dependency
 		{
 			// gather from ls
@@ -1638,12 +1662,26 @@ class emkfile {
 				});
 			}
 			catch(e_glob) {
-				log.fail(s_path, `glob failed on '${s_target}'`, e_glob.message);
+				// no match is same as no file
+				if('NOMATCH' === e_glob.code) {
+					a_files = [];
+				}
+				// not okay
+				else {
+					log.fail(s_path, `glob failed on '${s_target}'`, e_glob.message);
+				}
 			}
 
 			// no files
 			if(!a_files.length) {
-				log.fail(s_path, `target '${s_target}' did not match any task patterns nor does such a file dependency exist`);
+				// optional
+				if(h_args.optional) {
+					log.warn(s_path, `target ${s_target} did not match any task patterns nor does such a file dependency exist. ignoring since '.optional' arg is truthy`);
+				}
+				// no optional arg given
+				else {
+					log.fail(s_path, `target '${s_target}' did not match any task patterns nor does such a file dependency exist`);
+				}
 			}
 
 			// sources
@@ -1719,17 +1757,44 @@ class emkfile {
 
 					h_node[a_frags[i_frag]] = si_task;
 				}
-				// file
+				// non-task
 				else {
-					let h_node = h_tree_files;
-					let a_dirs = si_task.split('/');
-					let i_frag = 0;
-					for(let nl_frags=a_dirs.length-1; i_frag<nl_frags; i_frag++) {
-						let s_dir = a_dirs[i_frag]+'/';
-						h_node = h_node[s_dir] = h_node[s_dir] || {};
+					let g_url;
+					try {
+						g_url = new url(si_task);
 					}
+					catch(e_parse) {}
 
-					h_node[a_dirs[i_frag]] = si_task;
+					// url
+					if(g_url) {
+						let h_node = h_tree_files;
+						let a_dirs = [
+							g_url.origin+'/',
+							...(g_url.pathname || '/').replace(/^\//, '').split('/').map(s => s+'/'),
+						];
+						if(g_url.search || g_url.hash) {
+							a_dirs.push((g_url.search || '')+(g_url.hash || ''));
+						}
+						let i_frag = 0;
+						for(let nl_frags=a_dirs.length-1; i_frag<nl_frags; i_frag++) {
+							let s_frag = a_dirs[i_frag];
+							h_node = h_node[s_frag] = h_node[s_frag] || {};
+						}
+
+						h_node[a_dirs[i_frag]] = si_task;
+					}
+					// file
+					else {
+						let h_node = h_tree_files;
+						let a_dirs = si_task.split('/');
+						let i_frag = 0;
+						for(let nl_frags=a_dirs.length-1; i_frag<nl_frags; i_frag++) {
+							let s_dir = a_dirs[i_frag]+'/';
+							h_node = h_node[s_dir] = h_node[s_dir] || {};
+						}
+
+						h_node[a_dirs[i_frag]] = si_task;
+					}
 				}
 			}
 
