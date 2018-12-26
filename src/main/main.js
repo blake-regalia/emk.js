@@ -666,12 +666,12 @@ class executask {
 
 					// string; run as bash script
 					if('string' === typeof z_item) {
-						await this.execute_bash(z_item, s_label+s_suffix);
+						await this.execute_bash(z_item, s_label+s_suffix, g_exec);
 					}
 					// function; run as callback
 					else if('function' === typeof z_item) {
 						// capture result
-						let z_res = await this.execute_callback(z_item, s_label+s_suffix);
+						let z_res = await this.execute_callback(z_item, s_label+s_suffix, g_exec);
 
 						// returned something
 						if('string' === typeof z_res || 'function' === typeof z_res || Array.isArray(z_res)) {
@@ -693,7 +693,7 @@ class executask {
 		}
 	}
 
-	async execute_callback(f_run, s_label) {
+	async execute_callback(f_run, s_label, g_exec) {
 		// stringify function
 		let s_run = f_run.toString();
 
@@ -719,7 +719,7 @@ class executask {
 		return z_res;
 	}
 
-	async execute_bash(s_script, s_label) {
+	async execute_bash(s_script, s_label, g_exec) {
 		// bash command
 		let s_bash = bash.contextify(s_script, {
 			target: this.path,
@@ -727,8 +727,13 @@ class executask {
 		});
 
 		// print
-		log.notice(s_label, `${chalk.dim('args:')} ${JSON.stringify(this.xdeps)}; ${chalk.dim('vars:')} ${JSON.stringify(this.args)}\n`
-			+`${pad(chalk.keyword('steelblue')(gobble(s_bash, '')+'\n'), S_QUOTE_IN)}`);
+		if(!g_exec.silent && !g_exec.quiet) {
+			log.notice(s_label, `${chalk.dim('args:')} ${JSON.stringify(this.xdeps)}; ${chalk.dim('vars:')} ${JSON.stringify(this.args)}\n`
+				+`${pad(chalk.keyword('steelblue')(gobble(s_bash, '')+'\n'), S_QUOTE_IN)}`);
+		}
+
+		// dry run only; done
+		if(g_exec.dry) return log.good(s_label, `${S_STATUS_PASS} dry run`); // ✔
 
 		// run process
 		let u_run = bash.spawn(s_bash, this.args, this.xdeps);
@@ -748,7 +753,7 @@ class executask {
 		await new Promise((fk_run) => {
 			u_run.on('exit', async(n_code) => {
 				// print last of buffers
-				if(s_buffer_stdout) {
+				if(s_buffer_stdout && !g_exec.silent) {
 					log.quote(s_label, S_QUOTE_CMD+'\n'+pad(s_buffer_stdout));
 				}
 				if(s_buffer_stderr) {
@@ -1030,6 +1035,18 @@ class execuout extends executask {
 		// output file
 		let pd_dir = path.dirname(p_file);
 
+		// dry-run
+		if(g_exec.dry) {
+			// bash run
+			await super.execute(g_exec);
+
+			// verbose
+			log.warn(p_file, `skipping validation due to dry-run switch`);
+
+			// done
+			return;
+		}
+
 		// prep to get time last modified
 		let t_mtime;
 
@@ -1088,7 +1105,7 @@ class execuout extends executask {
 		// bash run
 		await super.execute(g_exec);
 
-		// make sure file exists
+		// make sure fie exists
 		try {
 			await fs_access(p_file, fs.constants.F_OK);
 		}
@@ -1189,7 +1206,7 @@ class execuurl extends executask {
 			deps: [],
 			run: null,
 			file: null,
-			response_headers: d_res_head.headers,
+			response_headers: d_res_head? d_res_head.headers: null,
 			cwd: p_cwd,
 			graph: null,
 			watcher: null,
@@ -1200,11 +1217,22 @@ class execuurl extends executask {
 	async execute(g_exec={}) {
 		let p_url = this.url;
 
-		let d_res = await url_stat(p_url, this.path);
+		// offline mode
+		if(g_exec.offline) {
+			// set non-zero mtime
+			this.mtime = 1;
 
-		let xt_mtime = this.mtime = (new Date(d_res.headers['last-modified'])).getTime();
+			// verbose
+			log.warn(p_url, `${S_STATUS_PASS} check skipped because of offline switch`);
+		}
+		// online
+		else {
+			let d_res = await url_stat(p_url, this.path);
 
-		log.good(p_url, `${S_STATUS_PASS} modified ${time_ago(xt_mtime)} ago`);
+			let xt_mtime = this.mtime = (new Date(d_res.headers['last-modified'])).getTime();
+
+			log.good(p_url, `${S_STATUS_PASS} modified ${time_ago(xt_mtime)} ago`);
+		}
 	}
 }
 
@@ -1471,7 +1499,7 @@ class emkfile {
 		}
 	}
 
-	async add(a_executasks, h_args, k_graph) {
+	async add(a_executasks, h_args, k_graph, gc_exec) {
 		let as_ids = new Set();
 
 		// each matching task
@@ -1497,7 +1525,7 @@ class emkfile {
 						...(await this.plot({
 							call: s_dep_call,
 							args: h_args,
-						}, k_graph, k_executask.path)),
+						}, k_graph, k_executask.path, gc_exec)),
 					]);
 				}
 
@@ -1533,7 +1561,7 @@ class emkfile {
 		return as_ids;
 	}
 
-	async plot(g_call, k_graph, s_path) {
+	async plot(g_call, k_graph, s_path, gc_exec) {
 		let {
 			call: s_call,
 			args: h_args_pre,
@@ -1597,15 +1625,18 @@ class emkfile {
 
 				// serialize url value
 				let p_url = g_url.href;
+				let d_res = null;
 
-				// test for exists
-				let d_res = await url_stat(p_url, s_path);
+				// online; test for exists
+				if(!gc_exec.offline) {
+					d_res = await url_stat(p_url, s_path);
+				}
 
 				// sources
 				let as_srcs = new Set([
 					...(await this.add([
 						new execuurl(p_url, this.args.cwd, d_res, s_path, this),
-					], h_args, k_graph)),
+					], h_args, k_graph, gc_exec)),
 				]);
 
 				return as_srcs;
@@ -1627,7 +1658,7 @@ class emkfile {
 
 			// tasks matched
 			if(a_executasks.length) {
-				return await this.add(a_executasks, h_args, k_graph);
+				return await this.add(a_executasks, h_args, k_graph, gc_exec);
 			}
 		}
 
@@ -1646,7 +1677,7 @@ class emkfile {
 
 			// outputs matched
 			if(a_executasks.length) {
-				return await this.add(a_executasks, h_args, k_graph);
+				return await this.add(a_executasks, h_args, k_graph, gc_exec);
 			}
 		}
 
@@ -1703,7 +1734,7 @@ class emkfile {
 					...as_srcs,
 					...(await this.add([
 						new execusrc(s_file, this.args.cwd, dk_stats, s_target, this),
-					], h_args, k_graph)),
+					], h_args, k_graph, gc_exec)),
 				]);
 			}
 
@@ -1724,7 +1755,7 @@ class emkfile {
 		for(let g_call of a_calls) {
 			as_invocations = [
 				...as_invocations,
-				...(await this.plot(g_call, k_graph, 'emk.js')),
+				...(await this.plot(g_call, k_graph, 'emk.js', g_config)),
 			];
 		}
 
@@ -1937,8 +1968,11 @@ async function load(p_emkfile, g_args={}) {
 
 	// run calls
 	await k_emkfile.run(g_args.calls, {
-		force: g_args.force,
-		watch: g_args.watch,
+		force: g_args.force || false,
+		watch: g_args.watch || false,
+		silent: g_args.silent || false,
+		dry: g_args.dryRun || false,
+		offline: g_args.offline || false,
 	});
 }
 
@@ -1982,9 +2016,12 @@ if(module === require.main) {
 		.boolean('f')
 			.alias('f', 'force')
 			.describe('f', 'force run all tasks (ignore modified time)')
+		.boolean('q')
+			.alias('q', 'quiet')
+			.describe('q', 'do not print the commands themselves')
 		.boolean('s')
 			.alias('s', 'silent')
-			.describe('s', 'do not echo commands')
+			.describe('s', 'do not echo stdout from commands and do not print the commands themselves')
 		.boolean('w')
 			.alias('w', 'watch')
 			.describe('w', 'watch dependency files and re-emk targets')
@@ -1997,6 +2034,9 @@ if(module === require.main) {
 			.alias('t', 'timeout')
 			.describe('t', `specify how long to wait for an emkfile to export in ms`)
 			.default('t', T_EVAL_TIMEOUT)
+		.boolean('x')
+			.alias('x', 'offline')
+			.describe('x', 'assume all URL dependents are up-to-date')
 		.string('g')
 			.alias('g', 'config')
 			.describe('g', 'pass a js config object to the specific task')

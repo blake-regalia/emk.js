@@ -112,11 +112,14 @@ TARGET Options:
 Options:
   -n, --dry-run  show the targets and commands without executing them  [boolean]
   -f, --force    force run all tasks (ignore modified time)            [boolean]
-  -s, --silent   do not echo commands                                  [boolean]
+  -q, --quiet    do not print the commands themselves                  [boolean]
+  -s, --silent   do not echo stdout from commands and do not print the commands
+                 themselves                                            [boolean]
   -w, --watch    watch dependency files and re-emk targets             [boolean]
   -u, --use      use specified emk file                                 [string]
   -t, --timeout  specify how long to wait for an emkfile to export in ms
                                                         [number] [default: 5000]
+  -x, --offline  assume all URL dependents are up-to-date              [boolean]
   -h, --help     Show help                                             [boolean]
   -v, --version  Show version number                                   [boolean]
 
