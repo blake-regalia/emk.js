@@ -881,6 +881,7 @@ class output_creator {
 			deps: a_deps=[],
 			run: s_run='',
 			copy: s_src=null,
+			link: s_link=null,
 		} = g_create;
 
 		// normalize deps
@@ -910,6 +911,23 @@ class output_creator {
 			s_run = /* syntax: bash */ `
 				# copy from src to dest
 				cp $1 $@
+				${s_run}
+			`;
+		}
+		// link
+		else if(s_link) {
+			// test source is file and read access
+			try {
+				fs.accessSync(s_link, fs.constants.R_OK);
+			}
+			catch(e_access) {
+				log.fail(a_path.join('/'), `'link' cannot read source file dependency: '${s_link}'`, e_access.message);
+			}
+
+			a_deps = [s_link];
+			s_run = /* syntax: bash */ `
+				# link src from dest
+				ln -s $1 $@
 				${s_run}
 			`;
 		}
