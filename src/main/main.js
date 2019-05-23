@@ -927,7 +927,7 @@ class output_creator {
 			a_deps = [s_link];
 			s_run = /* syntax: bash */ `
 				# link src from dest
-				ln -s $1 $@
+				ln -sfn $1 $@
 				${s_run}
 			`;
 		}
