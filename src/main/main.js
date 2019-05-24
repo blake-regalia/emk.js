@@ -927,7 +927,7 @@ class output_creator {
 			a_deps = [s_link];
 			s_run = /* syntax: bash */ `
 				# link src from dest
-				ln -sfn $1 $@
+				ln -sfn '${path.relative(a_path.slice(0, -1).join('/'), s_link)}' $@
 				${s_run}
 			`;
 		}
