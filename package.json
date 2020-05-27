@@ -7,7 +7,7 @@
     "build": "./build"
   },
   "scripts": {
-    "build": "mkdir -p build/fragment && cp src/fragment/*.js build/fragment && jison ./src/fragment/grammar.jison ./src/fragment/lex.jisonlex -o build/fragment/parser.js && mkdir -p build/main && cp src/main/* build/main"
+    "build": "mkdir -p build/fragment && cp src/fragment/*.js build/fragment && npx jison ./src/fragment/grammar.jison ./src/fragment/lex.jisonlex -o build/fragment/parser.js && mkdir -p build/main && cp src/main/* build/main"
   },
   "bin": {
     "emk": "build/main/main.js"
@@ -27,11 +27,14 @@
   "dependencies": {
     "bash-glob": "^2.0.0",
     "braces": "^3.0.2",
-    "chalk": "^2.4.2",
+    "chalk": "^4.0.0",
     "mkdirp-promise": "^5.0.1",
-    "node-watch": "^0.6.3",
-    "request": "^2.88.0",
-    "request-promise": "^4.2.4",
-    "yargs": "^13.3.0"
+    "node-watch": "^0.6.4",
+    "request": "^2.88.2",
+    "request-promise": "^4.2.5",
+    "yargs": "^15.3.1"
+  },
+  "devDependencies": {
+    "jison": "^0.4.18"
   }
 }
